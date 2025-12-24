@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# Local config and credentials
+credentials.json
+tunnels.yaml
+*.db
+
+# FRP binaries (download separately)
+frp_*/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

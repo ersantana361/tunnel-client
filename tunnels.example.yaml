@@ -1,0 +1,53 @@
+# Tunnel Client Configuration
+# Copy this file to tunnels.yaml and customize for your setup
+
+# Server connection settings
+server:
+  # Your tunnel server address (cloud VPS or local server)
+  url: "your-server.com:7000"
+  # Authentication token (get this from your server admin)
+  token: "your-token-here"
+
+# Define your tunnels below
+tunnels:
+  # HTTP tunnel example - exposes a local web server
+  - name: my-webapp
+    description: "My web application"
+    type: http
+    local_port: 8080
+    subdomain: myapp
+    # Access at: http://myapp.your-server.com
+
+  # Another HTTP example - REST API
+  - name: my-api
+    description: "REST API backend"
+    type: http
+    local_port: 3000
+    subdomain: api
+    # Access at: http://api.your-server.com
+
+  # TCP tunnel example - exposes a database
+  - name: postgres
+    description: "PostgreSQL database"
+    type: tcp
+    local_port: 5432
+    remote_port: 15432
+    # Access at: your-server.com:15432
+
+  # TCP tunnel example - SSH access
+  - name: ssh
+    description: "SSH server"
+    type: tcp
+    local_port: 22
+    remote_port: 2222
+    # Access at: your-server.com:2222
+
+# Tunnel types:
+#   http/https - Web traffic, uses subdomain routing
+#   tcp/udp    - Raw protocol, uses remote_port mapping
+#
+# For HTTP/HTTPS tunnels:
+#   - subdomain: The subdomain prefix (e.g., "api" -> api.your-server.com)
+#
+# For TCP/UDP tunnels:
+#   - remote_port: The port on the server to expose (e.g., 15432)
