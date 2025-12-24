@@ -1,0 +1,19 @@
+services:
+  tunnel-client:
+    build: .
+    container_name: tunnel-client
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist credentials between restarts
+      - ./credentials.json:/app/credentials.json
+      # frpc config (auto-generated)
+      - frpc-config:/etc/frp
+      # frpc logs
+      - ./logs:/tmp
+    environment:
+      - TZ=UTC
+
+volumes:
+  frpc-config:

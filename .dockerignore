@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+venv
+env
+.env
+
+# Local files
+credentials.json
+tunnels.yaml
+*.db
+*.log
+
+# FRP binaries (downloaded in Dockerfile)
+frp_*/
+
+# IDE
+.vscode
+.idea
+
+# Claude
+.claude
+
+# Docs
+docs/
+
+# OS
+.DS_Store
+Thumbs.db
