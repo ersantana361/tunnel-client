@@ -19,8 +19,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY app.py .
-COPY tunnels.example.yaml .
+COPY tunnel_client/ ./tunnel_client/
 
 # Create directories for frpc config
 RUN mkdir -p /etc/frp
@@ -29,4 +28,4 @@ RUN mkdir -p /etc/frp
 EXPOSE 3000
 
 # Run the application
-CMD ["python", "app.py", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["python", "-m", "tunnel_client.main", "--host", "0.0.0.0", "--port", "3000"]

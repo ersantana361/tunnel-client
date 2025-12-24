@@ -4,21 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Tunnel Client is a web-based UI for managing FRP (Fast Reverse Proxy) tunnels. It provides a FastAPI backend with an embedded HTML/CSS/JS frontend served from a single `app.py` file. Tunnels are defined in a YAML config file (`tunnels.yaml`), and the web UI provides read-only monitoring and service control.
+Tunnel Client is a web-based UI for managing FRP (Fast Reverse Proxy) tunnels. It provides a FastAPI backend that communicates with a tunnel server API and a web frontend for tunnel management. Users authenticate with their server credentials, and the client manages the frpc process locally.
 
 ## Commands
 
 ### Run the application
 ```bash
-python3 app.py
+python -m tunnel_client.main
 ```
 Access at http://127.0.0.1:3000
 
 ### CLI options
 ```bash
-python3 app.py --port 3001      # Use different port
-python3 app.py --host 0.0.0.0   # Listen on all interfaces
-python3 app.py --help           # Show all options
+python -m tunnel_client.main --port 3001      # Use different port
+python -m tunnel_client.main --host 0.0.0.0   # Listen on all interfaces
+python -m tunnel_client.main --help           # Show all options
 ```
 
 ### Install dependencies
@@ -26,9 +26,18 @@ python3 app.py --help           # Show all options
 pip3 install -r requirements.txt --break-system-packages
 ```
 
-### Full installation (includes frpc binary and systemd service)
+### Docker Compose (recommended)
 ```bash
-./install.sh
+docker compose up -d        # Start in background
+docker compose logs -f      # View logs
+docker compose down         # Stop
+docker compose build --no-cache  # Rebuild
+```
+
+### Docker (standalone)
+```bash
+docker build -t tunnel-client .
+docker run -p 3000:3000 -v ./credentials.json:/app/credentials.json tunnel-client
 ```
 
 ### Service management
@@ -41,85 +50,93 @@ journalctl -u tunnel-client -f  # View logs
 
 ## Architecture
 
-### Configuration Flow
+### Flow
 ```
-tunnels.yaml → app.py → /etc/frp/frpc.ini → frpc process
-                 ↓
-              Web UI (read-only monitoring)
+User Login → Server API → access_token + tunnel_token
+                ↓
+tunnel_client → Server API → Tunnel CRUD
+                ↓
+             frpc → Server (frps)
 ```
 
-### Single-File Application
-The entire application is in `app.py`:
-- **Lines 1-35**: Imports, logging setup, and configuration constants
-- **Lines 39-76**: YAML config loading functions (`load_config`, `get_cached_config`, `reload_config`)
-- **Lines 80-115**: FastAPI app lifespan (startup/shutdown with config loading)
-- **Lines 119-145**: Pydantic Tunnel model for reference/validation
-- **Lines 150-205**: API endpoints for config and tunnels (read from YAML)
-- **Lines 206-330**: Service control endpoints (start/stop/restart with process group management)
-- **Lines 333-405**: frpc config generation from YAML with file permission hardening
-- **Lines 408-857**: Embedded HTML/CSS/JS UI in `get_client_html()`
-- **Lines 860-870**: Main block with argparse CLI
+### Project Structure
+```
+tunnel_client/
+├── __init__.py           # Package init with version
+├── main.py               # FastAPI app entry point, lifespan
+├── config.py             # Settings, constants, logging
+├── models/
+│   ├── __init__.py
+│   └── schemas.py        # Pydantic request/response models
+├── services/
+│   ├── __init__.py
+│   ├── credentials.py    # Credentials load/save/clear
+│   ├── frpc.py           # frpc process management & config generation
+│   └── api_client.py     # Server API client (tunnel CRUD)
+├── routers/
+│   ├── __init__.py
+│   ├── auth.py           # /api/login, /api/logout, /api/auth/status
+│   ├── tunnels.py        # /api/tunnels CRUD
+│   └── service.py        # /api/start, /api/stop, /api/restart, /api/status
+├── static/
+│   ├── css/
+│   │   └── style.css     # UI styles
+│   └── js/
+│       └── app.js        # Frontend JavaScript
+└── templates/
+    └── index.html        # Main HTML template
+```
+
+### Key Modules
+
+- **config.py**: Configuration constants (file paths, logging setup)
+- **services/credentials.py**: Manages credentials.json (server_url, access_token, tunnel_token, user_email)
+- **services/api_client.py**: HTTP client for tunnel server API
+- **services/frpc.py**: frpc process lifecycle (start, stop, config generation)
+- **routers/auth.py**: Authentication endpoints (login saves credentials, auto-starts frpc)
+- **routers/tunnels.py**: Tunnel CRUD (proxies to server API)
+- **routers/service.py**: frpc service control
 
 ### Configuration Files
-- **`tunnels.yaml`**: User-defined tunnel configuration (server URL, token, tunnels)
-- **`tunnels.example.yaml`**: Template with examples
+- **`credentials.json`**: User credentials (auto-created on login, 0600 permissions)
 - **`/etc/frp/frpc.ini`**: Auto-generated frpc config with 0600 permissions
 - **`/tmp/frpc.log`**: frpc subprocess output for debugging
 - **`/tmp/frpc.pid`**: frpc process ID with 0600 permissions
 
-### YAML Config Format
-```yaml
-server:
-  url: "server.com:7000"
-  token: "your-token"
-
-tunnels:
-  - name: my-api
-    description: "Optional description"
-    type: http
-    local_port: 8080
-    subdomain: api
-
-  - name: database
-    type: tcp
-    local_port: 5432
-    remote_port: 15432
-```
-
 ### Key API Endpoints
-- `GET /api/config` - Get configuration status (configured, server_url, tunnel_count)
-- `GET /api/tunnels` - List all tunnels from YAML config
-- `POST /api/reload` - Reload config from YAML file
-- `POST /api/start`, `POST /api/stop`, `POST /api/restart` - Control frpc process
+- `GET /api/config` - Get client configuration (server_url if pre-configured)
+- `POST /api/login` - Login to server, save credentials
+- `POST /api/logout` - Stop frpc, clear credentials
+- `GET /api/auth/status` - Check if authenticated
+- `GET /api/tunnels` - List tunnels from server
+- `POST /api/tunnels` - Create tunnel on server
+- `PUT /api/tunnels/{id}` - Update tunnel on server
+- `DELETE /api/tunnels/{id}` - Delete tunnel from server
 - `GET /api/status` - Check if frpc is running
+- `POST /api/start`, `POST /api/stop`, `POST /api/restart` - Control frpc process
+
+### Environment Variables
+- `SERVER_URL` - Pre-configured server URL (hides server URL field in login form)
 
 ### Process Management
 The app manages the `frpc` subprocess:
 - PID stored in `/tmp/frpc.pid` with 0600 permissions
 - Uses process group kill for clean shutdown
-- Waits up to 5 seconds for graceful termination
-- Config regenerated and service restarted when reload is triggered
-
-### Input Validation
-Tunnel model (for reference) validates:
-- Name: alphanumeric with underscores/hyphens, 1-50 chars
-- Type: http, https, tcp, or udp only
-- Ports: 1-65535 range
-- Subdomain: DNS-safe format, required for http/https
-- Remote port: required for tcp/udp
+- Auto-starts on login if tunnels exist
+- Auto-starts on app startup if credentials and tunnels exist
 
 ## Dependencies
 - FastAPI + Uvicorn for web server
-- Pydantic for request validation with Field constraints
-- PyYAML for config file parsing
+- Pydantic for request validation
+- Requests for server API calls
 - External: `frpc` binary at `/usr/local/bin/frpc`
 
 ## Files
 | File | Purpose |
 |------|---------|
-| `app.py` | Main FastAPI application with embedded UI |
-| `tunnels.yaml` | User's tunnel configuration |
-| `tunnels.example.yaml` | Example config template |
+| `tunnel_client/` | Main Python package |
+| `credentials.json` | User credentials (runtime) |
 | `requirements.txt` | Python dependencies |
+| `Dockerfile` | Container build |
+| `docker-compose.yaml` | Docker orchestration |
 | `install.sh` | Installation script for frpc and systemd |
-| `README.md` | User documentation |

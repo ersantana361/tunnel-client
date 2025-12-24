@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tunnel Client</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Login Screen -->
+        <div id="loginScreen" class="login-container" style="display:none">
+            <div class="login-box">
+                <h2>Tunnel Client</h2>
+                <div id="loginAlert"></div>
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group" id="serverUrlGroup">
+                        <label>Server URL</label>
+                        <input type="text" id="serverUrl" placeholder="http://your-server.com:8000">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="email" placeholder="user@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="password" placeholder="Your password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;margin-top:10px">Login</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Main Dashboard -->
+        <div id="dashboard" style="display:none">
+            <h1>
+                Tunnel Client
+                <span class="user-info">
+                    <span id="userEmail"></span>
+                    <button class="btn btn-secondary btn-sm" onclick="handleLogout()">Logout</button>
+                </span>
+            </h1>
+
+            <div id="alert"></div>
+
+            <!-- Status Bar -->
+            <div class="status-bar">
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Checking...</span>
+                </div>
+                <div>
+                    <button class="btn btn-success" id="btnStart" onclick="startService()">Start</button>
+                    <button class="btn btn-danger" id="btnStop" onclick="stopService()" style="display:none">Stop</button>
+                    <button class="btn btn-secondary" id="btnRestart" onclick="restartService()" style="display:none">Restart</button>
+                </div>
+            </div>
+
+            <!-- Tunnels Section -->
+            <div class="section">
+                <h2>
+                    Tunnels <span id="tunnelCount" style="color:#64748b;font-weight:normal"></span>
+                    <button class="btn btn-primary btn-sm" onclick="toggleCreateForm()">+ New Tunnel</button>
+                </h2>
+
+                <!-- Create/Edit Tunnel Form -->
+                <div class="create-form" id="createForm">
+                    <h3 id="formTitle" style="margin-bottom:15px;color:#94a3b8">Create Tunnel</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="tunnelName" placeholder="my-tunnel">
+                        </div>
+                        <div class="form-group">
+                            <label>Type</label>
+                            <select id="tunnelType" onchange="updateFormFields()">
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                                <option value="tcp">TCP</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Local Host</label>
+                            <input type="text" id="tunnelLocalHost" placeholder="127.0.0.1" value="127.0.0.1">
+                        </div>
+                        <div class="form-group">
+                            <label>Local Port</label>
+                            <input type="number" id="tunnelLocalPort" placeholder="8080" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" id="subdomainGroup">
+                            <label>Subdomain</label>
+                            <input type="text" id="tunnelSubdomain" placeholder="myapp">
+                        </div>
+                        <div class="form-group" id="remotePortGroup" style="display:none">
+                            <label>Remote Port</label>
+                            <input type="number" id="tunnelRemotePort" placeholder="5432" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="formSubmitBtn" onclick="createTunnel()">Create Tunnel</button>
+                        <button class="btn btn-secondary" onclick="toggleCreateForm()">Cancel</button>
+                    </div>
+                </div>
+
+                <div class="tunnel-list" id="tunnelList">
+                    <p style="color: #64748b">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

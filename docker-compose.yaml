@@ -4,7 +4,7 @@ services:
     container_name: tunnel-client
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       # Persist credentials between restarts
       - ./credentials.json:/app/credentials.json
@@ -14,6 +14,7 @@ services:
       - ./logs:/tmp
     environment:
       - TZ=UTC
+      - SERVER_URL=http://tunnel.ersantana.com:8000
 
 volumes:
   frpc-config:
