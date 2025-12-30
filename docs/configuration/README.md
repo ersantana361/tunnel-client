@@ -237,10 +237,53 @@ tunnels:
 | `description` | string | No | All | Human-readable description |
 | `type` | string | Yes | All | `http`, `https`, `tcp`, or `udp` |
 | `local_port` | integer | Yes | All | Port on your local machine (1-65535) |
+| `local_host` | string | No | All | Host/IP to connect to (default: `127.0.0.1`) |
 | `subdomain` | string | Yes* | http, https | Subdomain prefix for routing |
 | `remote_port` | integer | Yes* | tcp, udp | Port exposed on the server (1-65535) |
 
 *Required for the specified tunnel types.
+
+### Local Host (Docker Networking)
+
+The `local_host` property specifies where frpc connects to reach your service. This is critical when running in Docker.
+
+```yaml
+# Default: localhost (works when running directly on host)
+local_host: "127.0.0.1"
+
+# Docker: Use container name when tunneling to other containers
+local_host: "my-flask-app"
+
+# Docker: Use host.docker.internal for services on the host
+local_host: "host.docker.internal"
+```
+
+**When to change `local_host`:**
+
+| Scenario | `local_host` Value |
+|----------|-------------------|
+| Running directly on host | `127.0.0.1` (default) |
+| Docker → other container (same network) | Container name (e.g., `my-app`) |
+| Docker → host service | `host.docker.internal` |
+| Docker → container on different network | Connect networks first, then use container name |
+
+**Example: Docker with multiple containers**
+
+```bash
+# Update tunnel to point to container name
+curl -X PUT http://localhost:3002/api/tunnels/1 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "webapp",
+    "type": "http",
+    "local_port": 5000,
+    "local_host": "flask-container",
+    "subdomain": "webapp"
+  }'
+
+# Restart to apply
+curl -X POST http://localhost:3002/api/restart
+```
 
 ### Name Rules
 

@@ -12,6 +12,7 @@ This guide helps you diagnose and fix common issues with Tunnel Client.
 - [Connection Issues](#connection-issues)
 - [Service Issues](#service-issues)
 - [Tunnel Issues](#tunnel-issues)
+- [Docker Issues](#docker-issues)
 - [Web UI Issues](#web-ui-issues)
 - [Logs and Debugging](#logs-and-debugging)
 - [Getting Help](#getting-help)
@@ -370,6 +371,163 @@ curl -X POST http://127.0.0.1:3000/api/reload
 1. **DNS not propagated**: Wait or try IP directly
 2. **Server firewall**: Check HTTP port (usually 80 or 8080) is open
 3. **Server config**: Ensure `subdomain_host` is configured on server
+
+---
+
+## Docker Issues
+
+### Tunnel Connects but Services Unreachable
+
+**Problem**: frpc shows "start proxy success" but accessing the tunnel URL returns connection errors.
+
+**Cause**: When running in Docker, `127.0.0.1` refers to the container itself, not the host or other containers.
+
+**Diagnosis**:
+
+```bash
+# Check frpc logs inside container
+docker exec tunnel-client cat /tmp/frpc.log
+
+# Look for errors like:
+# "connect to local service [127.0.0.1:5000] error: connection refused"
+```
+
+**Solutions**:
+
+1. **For services in other containers**: Use container names as `local_host`
+
+   Update your tunnels via the API:
+   ```bash
+   curl -X PUT http://localhost:3002/api/tunnels/1 \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"myapp","type":"http","local_port":5000,"local_host":"my-container-name","subdomain":"myapp"}'
+   ```
+
+2. **Connect to the same Docker network**:
+   ```bash
+   # Connect tunnel-client to your app's network
+   docker network connect my-app-network tunnel-client
+
+   # Then restart frpc
+   curl -X POST http://localhost:3002/api/restart
+   ```
+
+3. **For services on the host**: Use `host.docker.internal` (Docker Desktop) or add to docker-compose:
+   ```yaml
+   extra_hosts:
+     - "host.docker.internal:host-gateway"
+   ```
+
+---
+
+### Token Mismatch After Update
+
+**Problem**: After updating the tunnel token, frpc fails with "token in login doesn't match".
+
+**Cause**: The application caches credentials in memory. The old token is still being used.
+
+**Solution**:
+
+1. Update `credentials.json` on the host (if volume-mounted):
+   ```bash
+   # Edit the file with the new token
+   nano credentials.json
+   ```
+
+2. Restart the container to clear the cache:
+   ```bash
+   docker restart tunnel-client
+   ```
+
+   Or recreate it:
+   ```bash
+   docker compose down && docker compose up -d
+   ```
+
+---
+
+### frpc Config Has Wrong Token
+
+**Problem**: Even after updating credentials, `/etc/frp/frpc.ini` still has the old token.
+
+**Cause**: The frpc config is regenerated from credentials when the service starts. If credentials weren't updated before restart, the old token persists.
+
+**Solution**:
+
+1. Verify credentials are updated:
+   ```bash
+   docker exec tunnel-client cat /app/credentials.json
+   ```
+
+2. Restart the frpc service (this regenerates the config):
+   ```bash
+   curl -X POST http://localhost:3002/api/restart
+   ```
+
+3. Verify the new config:
+   ```bash
+   docker exec tunnel-client cat /etc/frp/frpc.ini
+   ```
+
+---
+
+### Container Can't Reach Other Containers
+
+**Problem**: Tunnel client can't connect to services in other Docker containers.
+
+**Cause**: Containers on different Docker networks can't communicate.
+
+**Diagnosis**:
+
+```bash
+# Check which networks tunnel-client is on
+docker inspect tunnel-client --format '{{range $net,$v := .NetworkSettings.Networks}}{{$net}} {{end}}'
+
+# Check which network your target container is on
+docker inspect my-app --format '{{range $net,$v := .NetworkSettings.Networks}}{{$net}} {{end}}'
+```
+
+**Solution**:
+
+Connect tunnel-client to the same network:
+
+```bash
+docker network connect <network-name> tunnel-client
+```
+
+Or add it in docker-compose.yaml:
+
+```yaml
+services:
+  tunnel-client:
+    networks:
+      - default
+      - my-app-network
+
+networks:
+  my-app-network:
+    external: true
+```
+
+---
+
+### Volume Mount Errors on Restart
+
+**Problem**: Container fails to restart with mount errors.
+
+**Cause**: The mounted file (e.g., `credentials.json`) was deleted or moved.
+
+**Solution**:
+
+1. Recreate the file:
+   ```bash
+   echo '{}' > credentials.json
+   ```
+
+2. Recreate the container:
+   ```bash
+   docker compose down && docker compose up -d
+   ```
 
 ---
 

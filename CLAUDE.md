@@ -125,6 +125,42 @@ The app manages the `frpc` subprocess:
 - Auto-starts on login if tunnels exist
 - Auto-starts on app startup if credentials and tunnels exist
 
+### Credentials Caching
+- Credentials are cached in memory at startup (`services/credentials.py`)
+- If `credentials.json` is updated externally, the container must be restarted to pick up changes
+- The frpc config (`/etc/frp/frpc.ini`) is regenerated on each service start from credentials + tunnels
+
+## Docker Networking
+
+When running in Docker, `local_host: 127.0.0.1` refers to the container itself, not the host or other containers.
+
+### Tunneling to Other Containers
+1. Connect tunnel-client to the same Docker network as target services:
+   ```bash
+   docker network connect <network-name> tunnel-client
+   ```
+
+2. Update tunnels to use container names as `local_host`:
+   ```bash
+   curl -X PUT http://localhost:3002/api/tunnels/1 \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"myapp","type":"http","local_port":5000,"local_host":"my-container-name","subdomain":"myapp"}'
+   ```
+
+3. Restart frpc to regenerate config:
+   ```bash
+   curl -X POST http://localhost:3002/api/restart
+   ```
+
+### Tunneling to Host Services
+Use `host.docker.internal` as `local_host` (enabled via `extra_hosts` in docker-compose.yaml).
+
+### Updating Tunnel Token
+If the server token changes:
+1. Update `credentials.json` (volume-mounted from host)
+2. Restart container: `docker compose down && docker compose up -d`
+3. The frpc config will be regenerated with the new token on startup
+
 ## Dependencies
 - FastAPI + Uvicorn for web server
 - Pydantic for request validation

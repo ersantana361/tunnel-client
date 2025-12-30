@@ -15,6 +15,20 @@ services:
     environment:
       - TZ=UTC
       - SERVER_URL=http://tunnel.ersantana.com:8000
+    # For accessing services on the host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Uncomment and modify to connect to other container networks
+    # This is required when tunneling to services in other containers
+    # networks:
+    #   - default
+    #   - my-app-network
 
 volumes:
   frpc-config:
+
+# Uncomment to connect to external networks (other docker-compose projects)
+# networks:
+#   my-app-network:
+#     external: true
+#     name: my-project_default  # Use 'docker network ls' to find the name
