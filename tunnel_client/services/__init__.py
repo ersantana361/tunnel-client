@@ -9,6 +9,7 @@ from .frpc import (
     get_frpc_status,
     start_frpc,
     stop_frpc,
+    reload_frpc,
     regenerate_frpc_config,
     auto_start_frpc,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "get_frpc_status",
     "start_frpc",
     "stop_frpc",
+    "reload_frpc",
     "regenerate_frpc_config",
     "auto_start_frpc",
     "fetch_tunnels",

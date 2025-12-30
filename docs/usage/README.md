@@ -1,392 +1,207 @@
 # Usage Guide
 
-This guide covers how to use Tunnel Client on a daily basis, including the web UI, CLI options, and service management.
-
----
-
-## Table of Contents
-
-- [Web UI](#web-ui)
-  - [Dashboard Overview](#dashboard-overview)
-  - [Service Controls](#service-controls)
-  - [Tunnel List](#tunnel-list)
-  - [Reloading Configuration](#reloading-configuration)
-- [CLI Options](#cli-options)
-- [Managing Tunnels](#managing-tunnels)
-- [Running as a Service](#running-as-a-service)
-- [Logs and Monitoring](#logs-and-monitoring)
+How to use Tunnel Client on a daily basis.
 
 ---
 
 ## Web UI
 
-The web UI provides a real-time dashboard for monitoring and controlling your tunnels.
-
 ### Accessing the UI
 
-Start the application and open your browser:
+Open http://localhost:3002 in your browser.
 
-```bash
-python3 app.py
-# Open: http://127.0.0.1:3000
-```
+### Login
 
-### Dashboard Overview
+1. Enter your tunnel server URL (e.g., `http://tunnel.example.com:8000`)
+2. Enter your email and password
+3. Click "Login"
 
-The dashboard displays:
+### Dashboard
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Tunnel Client                                          │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ● Connected (PID: 12345)                              │
-│                                                         │
-│  [Start]  [Stop]  [Restart]  [Reload Config]           │
-│                                                         │
-├─────────────────────────────────────────────────────────┤
-│  Tunnels (3)                                            │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ my-api                                    HTTP  │   │
-│  │ localhost:8080 -> api.[server]                  │   │
-│  │ REST API backend                                │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ frontend                                  HTTP  │   │
-│  │ localhost:3000 -> app.[server]                  │   │
-│  │ React frontend                                  │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ postgres                                   TCP  │   │
-│  │ localhost:5432 -> [server]:15432                │   │
-│  │ PostgreSQL database                             │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  Config file: tunnels.yaml                             │
-│  Edit the config file to add or remove tunnels         │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
+After login you'll see:
+- Connection status (green = connected)
+- List of your tunnels
+- Buttons to add, edit, delete tunnels
+- Export/Import buttons
 
-### Status Indicator
+### Managing Tunnels
 
-| Status | Indicator | Description |
-|--------|-----------|-------------|
-| Connected | Green dot | frpc is running and connected |
-| Disconnected | Red dot | frpc is not running |
+#### Create a Tunnel
+
+1. Click "Add Tunnel"
+2. Fill in:
+   - **Name**: Unique identifier (e.g., `my-app`)
+   - **Type**: `http`, `https`, `tcp`, or `udp`
+   - **Local Port**: Port your service runs on (e.g., `8080`)
+   - **Local Host**: Usually `host.docker.internal` for host services
+   - **Subdomain** (for http/https): e.g., `myapp` → `myapp.tunnel.example.com`
+3. Click "Create"
+
+#### Edit a Tunnel
+
+1. Click the edit icon on the tunnel card
+2. Update fields
+3. Click "Save"
+
+#### Delete a Tunnel
+
+1. Click the delete icon on the tunnel card
+2. Confirm deletion
 
 ---
 
-### Service Controls
+## API Usage
 
-#### Start Button
-Starts the frpc service to establish tunnels.
+All API endpoints are at `http://localhost:3002/api/`.
 
-```
-[Start] → Starts frpc → Tunnels become active
-```
-
-#### Stop Button
-Stops the frpc service and closes all tunnels.
-
-```
-[Stop] → Stops frpc → Tunnels become inactive
-```
-
-#### Restart Button
-Restarts the frpc service (useful after config changes).
-
-```
-[Restart] → Stop → Start → Tunnels reconnect
-```
-
-#### Reload Config Button
-Reloads the YAML configuration file without restarting the app.
-
-```
-[Reload Config] → Re-reads tunnels.yaml → Updates tunnel list
-```
-
-If frpc is running, it will be automatically restarted to apply changes.
-
----
-
-### Tunnel List
-
-The tunnel list shows all tunnels defined in `tunnels.yaml`:
-
-| Element | Description |
-|---------|-------------|
-| **Name** | Tunnel identifier (e.g., `my-api`) |
-| **Type Badge** | HTTP, HTTPS, TCP, or UDP |
-| **Routing** | Local port and where it's exposed |
-| **Description** | Optional description from config |
-
----
-
-### Reloading Configuration
-
-When you modify `tunnels.yaml`:
-
-1. **Edit the file**:
-   ```bash
-   nano tunnels.yaml
-   ```
-
-2. **Click "Reload Config"** in the web UI
-
-3. **Verify changes** in the tunnel list
-
-Alternatively, use the API:
-```bash
-curl -X POST http://127.0.0.1:3000/api/reload
-```
-
----
-
-## CLI Options
-
-### Basic Usage
+### Authentication
 
 ```bash
-python3 app.py [options]
+# Login
+curl -X POST http://localhost:3002/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"server_url":"http://tunnel.example.com:8000","email":"user@example.com","password":"pass"}'
+
+# Check auth status
+curl http://localhost:3002/api/auth/status
+
+# Logout
+curl -X POST http://localhost:3002/api/logout
 ```
 
-### Available Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--host` | `127.0.0.1` | Host/IP to bind to |
-| `--port` | `3000` | Port to listen on |
-| `--help` | - | Show help message |
-
-### Examples
+### Tunnels
 
 ```bash
-# Default: localhost:3000
-python3 app.py
+# List tunnels
+curl http://localhost:3002/api/tunnels
 
-# Custom port
-python3 app.py --port 3001
+# Create tunnel
+curl -X POST http://localhost:3002/api/tunnels \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"my-app","type":"http","local_port":8080,"local_host":"host.docker.internal","subdomain":"myapp"}'
 
-# Listen on all interfaces (for network access)
-python3 app.py --host 0.0.0.0
+# Update tunnel
+curl -X PUT http://localhost:3002/api/tunnels/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"my-app","type":"http","local_port":9000,"local_host":"host.docker.internal","subdomain":"myapp"}'
 
-# Both options
-python3 app.py --host 0.0.0.0 --port 8080
-
-# Show help
-python3 app.py --help
+# Delete tunnel
+curl -X DELETE http://localhost:3002/api/tunnels/1
 ```
 
-### Security Note
-
-Using `--host 0.0.0.0` exposes the UI to your network. Only use this on trusted networks.
-
----
-
-## Managing Tunnels
-
-### Adding a Tunnel
-
-1. Open `tunnels.yaml` in your editor
-2. Add a new tunnel entry:
-   ```yaml
-   tunnels:
-     # ... existing tunnels ...
-
-     - name: new-tunnel
-       description: "My new service"
-       type: http
-       local_port: 9000
-       subdomain: newapp
-   ```
-3. Save the file
-4. Click "Reload Config" in the UI
-
-### Removing a Tunnel
-
-1. Open `tunnels.yaml`
-2. Delete or comment out the tunnel:
-   ```yaml
-   tunnels:
-     # - name: old-tunnel
-     #   type: http
-     #   local_port: 8000
-     #   subdomain: old
-   ```
-3. Save and reload
-
-### Modifying a Tunnel
-
-1. Edit the tunnel in `tunnels.yaml`
-2. Save and reload
-
-> **Note**: Tunnel names must be unique. To rename, delete the old entry and create a new one.
-
----
-
-## Running as a Service
-
-### Creating a Systemd Service
-
-Create the service file:
+### Service Control
 
 ```bash
-sudo nano /etc/systemd/system/tunnel-client.service
-```
-
-Add the following content:
-
-```ini
-[Unit]
-Description=Tunnel Client
-After=network.target
-
-[Service]
-Type=simple
-User=your-username
-WorkingDirectory=/path/to/tunnel-client
-ExecStart=/usr/bin/python3 /path/to/tunnel-client/app.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Enabling the Service
-
-```bash
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Enable auto-start on boot
-sudo systemctl enable tunnel-client
-
-# Start the service
-sudo systemctl start tunnel-client
-```
-
-### Service Commands
-
-| Command | Description |
-|---------|-------------|
-| `systemctl status tunnel-client` | Check service status |
-| `sudo systemctl start tunnel-client` | Start the service |
-| `sudo systemctl stop tunnel-client` | Stop the service |
-| `sudo systemctl restart tunnel-client` | Restart the service |
-| `journalctl -u tunnel-client -f` | Follow logs |
-
-### Checking Service Status
-
-```bash
-systemctl status tunnel-client
-```
-
-Expected output:
-```
-● tunnel-client.service - Tunnel Client
-     Loaded: loaded (/etc/systemd/system/tunnel-client.service; enabled)
-     Active: active (running) since ...
-     Main PID: 12345 (python3)
-```
-
----
-
-## Logs and Monitoring
-
-### Application Logs
-
-The application logs to stdout. View with:
-
-```bash
-# If running directly
-python3 app.py  # Logs appear in terminal
-
-# If running as service
-journalctl -u tunnel-client -f
-```
-
-### frpc Logs
-
-frpc subprocess logs are written to `/tmp/frpc.log`:
-
-```bash
-# View frpc logs
-cat /tmp/frpc.log
-
-# Follow in real-time
-tail -f /tmp/frpc.log
-```
-
-### Log Levels
-
-| Level | Example |
-|-------|---------|
-| INFO | `Loaded 3 tunnel(s) from tunnels.yaml` |
-| INFO | `frpc started with PID 12345` |
-| WARNING | `Config file not found` |
-| ERROR | `Failed to start frpc` |
-
-### Monitoring Endpoints
-
-Use the API for programmatic monitoring:
-
-```bash
-# Check if frpc is running
-curl http://127.0.0.1:3000/api/status
-# {"running": true, "pid": 12345}
-
-# Get tunnel count
-curl http://127.0.0.1:3000/api/config
-# {"configured": true, "tunnel_count": 3, ...}
-```
-
----
-
-## Quick Reference
-
-### Start/Stop Workflow
-
-```bash
-# Start app
-python3 app.py &
-
-# Start tunnels (via API)
-curl -X POST http://127.0.0.1:3000/api/start
-
 # Check status
-curl http://127.0.0.1:3000/api/status
+curl http://localhost:3002/api/status
 
-# Reload after config change
-curl -X POST http://127.0.0.1:3000/api/reload
-
-# Stop tunnels
-curl -X POST http://127.0.0.1:3000/api/stop
+# Reload config (after tunnel changes)
+curl -X POST http://localhost:3002/api/restart
 ```
 
-### Common Operations
+### Export/Import
+
+```bash
+# Export tunnels to file
+curl http://localhost:3002/api/tunnels/export > tunnels.json
+
+# Import tunnels from file
+curl -X POST http://localhost:3002/api/tunnels/import \
+  -H 'Content-Type: application/json' \
+  -d @tunnels.json
+```
+
+---
+
+## Docker Commands
+
+### Start/Stop
+
+```bash
+# Start both containers
+docker compose up -d
+
+# Stop both containers
+docker compose down
+
+# Restart frpc (after token change)
+docker compose restart frpc
+
+# Restart tunnel-client
+docker compose restart tunnel-client
+```
+
+### Viewing Logs
+
+```bash
+# All containers
+docker compose logs -f
+
+# frpc only
+docker compose logs -f frpc
+
+# tunnel-client only
+docker compose logs -f tunnel-client
+
+# Last 50 lines
+docker compose logs --tail 50
+```
+
+### Rebuild
+
+```bash
+# After code changes
+docker compose build --no-cache && docker compose up -d
+```
+
+---
+
+## Common Operations
 
 | Task | How To |
 |------|--------|
-| Start tunnels | Click "Start" or `POST /api/start` |
-| Stop tunnels | Click "Stop" or `POST /api/stop` |
-| Add tunnel | Edit YAML, click "Reload Config" |
-| Check status | Look at status indicator or `GET /api/status` |
-| View logs | `tail -f /tmp/frpc.log` |
+| Add tunnel | Web UI → "Add Tunnel" |
+| Edit tunnel | Web UI → Click edit icon |
+| Delete tunnel | Web UI → Click delete icon |
+| Check status | `curl http://localhost:3002/api/status` |
+| Reload config | `curl -X POST http://localhost:3002/api/restart` |
+| Update token | Update env, `docker compose restart frpc` |
+| View logs | `docker compose logs -f frpc` |
 
 ---
 
-## Navigation
+## Networking Tips
 
-| Previous | Up | Next |
-|----------|-----|------|
-| [Configuration](../configuration/) | [Documentation Index](../) | [API Reference](../api/) |
+### Tunneling to Host Services
+
+Use `host.docker.internal` as `local_host`:
+
+```json
+{
+  "name": "my-app",
+  "type": "http",
+  "local_port": 8080,
+  "local_host": "host.docker.internal",
+  "subdomain": "myapp"
+}
+```
+
+### Tunneling to Other Containers
+
+1. Connect frpc to the target network:
+   ```bash
+   docker network connect my-network frpc
+   ```
+
+2. Use container name as `local_host`:
+   ```json
+   {
+     "name": "my-app",
+     "local_host": "flask-container",
+     ...
+   }
+   ```
 
 ---
 
-[Back to Index](../) | [Configuration](../configuration/) | [API Reference](../api/) | [Examples](../examples/)
+[Back to Documentation](../)

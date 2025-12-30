@@ -28,16 +28,12 @@ pip3 install -r requirements.txt --break-system-packages
 
 ### Docker Compose (recommended)
 ```bash
-docker compose up -d        # Start in background
-docker compose logs -f      # View logs
-docker compose down         # Stop
-docker compose build --no-cache  # Rebuild
-```
-
-### Docker (standalone)
-```bash
-docker build -t tunnel-client .
-docker run -p 3000:3000 -v ./credentials.json:/app/credentials.json tunnel-client
+docker compose up -d              # Start both containers
+docker compose logs -f            # View logs (both containers)
+docker compose logs -f frpc       # View frpc logs only
+docker compose down               # Stop
+docker compose build --no-cache   # Rebuild tunnel-client
+docker compose restart frpc       # Restart frpc after token change
 ```
 
 ### Service management
@@ -50,13 +46,31 @@ journalctl -u tunnel-client -f  # View logs
 
 ## Architecture
 
+### Docker Containers
+```
+┌─────────────────────┐    ┌─────────────────────┐
+│   tunnel-client     │    │        frpc         │
+│   (Web UI + API)    │    │   (Tunnel Proxy)    │
+│                     │    │                     │
+│  - FastAPI server   │    │  - frpc binary      │
+│  - Config generator │───►│  - Admin API :7400  │
+│  - Admin API client │    │  - Always running   │
+└─────────────────────┘    └─────────────────────┘
+         │                          │
+         ▼                          ▼
+   /etc/frp/frpc.toml         frps server
+   (shared volume)
+```
+
 ### Flow
 ```
 User Login → Server API → access_token + tunnel_token
                 ↓
 tunnel_client → Server API → Tunnel CRUD
                 ↓
-             frpc → Server (frps)
+          Generate frpc.toml → frpc container → frps server
+                ↓
+          HTTP reload → frpc admin API (:7400)
 ```
 
 ### Project Structure
@@ -92,16 +106,14 @@ tunnel_client/
 - **config.py**: Configuration constants (file paths, logging setup)
 - **services/credentials.py**: Manages credentials.json (server_url, access_token, tunnel_token, user_email)
 - **services/api_client.py**: HTTP client for tunnel server API
-- **services/frpc.py**: frpc process lifecycle (start, stop, config generation)
+- **services/frpc.py**: frpc config generation and admin API client (reload, status)
 - **routers/auth.py**: Authentication endpoints (login saves credentials, auto-starts frpc)
 - **routers/tunnels.py**: Tunnel CRUD (proxies to server API)
 - **routers/service.py**: frpc service control
 
 ### Configuration Files
 - **`credentials.json`**: User credentials (auto-created on login, 0600 permissions)
-- **`/etc/frp/frpc.ini`**: Auto-generated frpc config with 0600 permissions
-- **`/tmp/frpc.log`**: frpc subprocess output for debugging
-- **`/tmp/frpc.pid`**: frpc process ID with 0600 permissions
+- **`/etc/frp/frpc.toml`**: Auto-generated frpc config (TOML format, shared volume)
 
 ### Key API Endpoints
 - `GET /api/config` - Get client configuration (server_url if pre-configured)
@@ -119,27 +131,28 @@ tunnel_client/
 
 ### Environment Variables
 - `SERVER_URL` - Pre-configured server URL (hides server URL field in login form)
+- `TUNNEL_TOKEN` - Override tunnel token from credentials (takes priority over credentials.json)
+- `FRPC_ADMIN_URL` - frpc admin API URL (default: `http://frpc:7400`)
 
-### Process Management
-The app manages the `frpc` subprocess:
-- PID stored in `/tmp/frpc.pid` with 0600 permissions
-- Uses process group kill for clean shutdown
-- Auto-starts on login if tunnels exist
-- Auto-starts on app startup if credentials and tunnels exist
+### Container Architecture
+- **frpc container**: Always running, auto-restarts on failure (`restart: unless-stopped`)
+- **tunnel-client container**: Generates config, calls frpc admin API to reload
+- **Shared volume**: `/etc/frp` contains `frpc.toml` config
+- **Hot reload**: Config changes applied via `http://frpc:7400/api/reload` (no container restart needed)
 
 ### Credentials Caching
 - Credentials are cached in memory at startup (`services/credentials.py`)
-- If `credentials.json` is updated externally, the container must be restarted to pick up changes
-- The frpc config (`/etc/frp/frpc.ini`) is regenerated on each service start from credentials + tunnels
+- If `credentials.json` is updated externally, restart tunnel-client container
+- The frpc config (`/etc/frp/frpc.toml`) is regenerated on login and tunnel changes
 
 ## Docker Networking
 
-When running in Docker, `local_host: 127.0.0.1` refers to the container itself, not the host or other containers.
+When running in Docker, `local_host: 127.0.0.1` refers to the frpc container itself, not the host or other containers.
 
 ### Tunneling to Other Containers
-1. Connect tunnel-client to the same Docker network as target services:
+1. Connect the **frpc** container to the same Docker network as target services:
    ```bash
-   docker network connect <network-name> tunnel-client
+   docker network connect <network-name> frpc
    ```
 
 2. Update tunnels to use container names as `local_host`:
@@ -149,19 +162,20 @@ When running in Docker, `local_host: 127.0.0.1` refers to the container itself, 
      -d '{"name":"myapp","type":"http","local_port":5000,"local_host":"my-container-name","subdomain":"myapp"}'
    ```
 
-3. Restart frpc to regenerate config:
+3. Reload frpc config (hot reload, no restart needed):
    ```bash
    curl -X POST http://localhost:3002/api/restart
    ```
 
 ### Tunneling to Host Services
-Use `host.docker.internal` as `local_host` (enabled via `extra_hosts` in docker-compose.yaml).
+Use `host.docker.internal` as `local_host` (enabled via `extra_hosts` in docker-compose.yaml for both containers).
 
 ### Updating Tunnel Token
 If the server token changes:
-1. Update `credentials.json` (volume-mounted from host)
-2. Restart container: `docker compose down && docker compose up -d`
-3. The frpc config will be regenerated with the new token on startup
+1. Update `TUNNEL_TOKEN` in `~/.bash_exports.sh`
+2. Reload: `source ~/.bash_exports.sh && docker compose restart frpc`
+
+The `TUNNEL_TOKEN` env var takes priority over `credentials.json`.
 
 ## Export/Import Tunnels
 
@@ -204,8 +218,8 @@ curl -X POST http://localhost:3002/api/tunnels/import \
 ## Dependencies
 - FastAPI + Uvicorn for web server
 - Pydantic for request validation
-- Requests for server API calls
-- External: `frpc` binary at `/usr/local/bin/frpc`
+- Requests for server API calls and frpc admin API
+- frpc container (`snowdreamtech/frpc:0.52.3`)
 
 ## Files
 | File | Purpose |

@@ -1,483 +1,245 @@
 # Architecture Overview
 
-This document describes how Tunnel Client works internally, its components, and data flow.
+This document describes how Tunnel Client works internally.
 
 ---
 
-## Table of Contents
-
-- [System Overview](#system-overview)
-- [Components](#components)
-- [Data Flow](#data-flow)
-- [File Structure](#file-structure)
-- [Configuration Flow](#configuration-flow)
-- [Process Management](#process-management)
-- [API Architecture](#api-architecture)
-- [Security Model](#security-model)
-- [Extending the System](#extending-the-system)
-
----
-
-## System Overview
-
-Tunnel Client is a web-based management interface for [FRP (Fast Reverse Proxy)](https://github.com/fatedier/frp). It reads tunnel definitions from a YAML file, generates frpc configuration, and manages the frpc process.
-
-### High-Level Architecture
+## Docker Container Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        User                                  │
-│                          │                                   │
-│          ┌───────────────┼───────────────┐                   │
-│          ▼               ▼               ▼                   │
-│    ┌──────────┐    ┌──────────┐    ┌──────────┐             │
-│    │  Web UI  │    │   CLI    │    │   API    │             │
-│    │ (Browser)│    │ (curl)   │    │ (Script) │             │
-│    └────┬─────┘    └────┬─────┘    └────┬─────┘             │
-│         │               │               │                    │
-│         └───────────────┼───────────────┘                    │
-│                         ▼                                    │
-│              ┌────────────────────┐                          │
-│              │      FastAPI       │                          │
-│              │      (app.py)      │                          │
-│              └─────────┬──────────┘                          │
-│                        │                                     │
-│         ┌──────────────┼──────────────┐                      │
-│         ▼              ▼              ▼                      │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐               │
-│  │  YAML      │ │  frpc.ini  │ │   frpc     │               │
-│  │  Config    │ │  Generator │ │  Process   │               │
-│  └────────────┘ └────────────┘ └────────────┘               │
-│                                      │                       │
-│                                      ▼                       │
-│                           ┌────────────────┐                 │
-│                           │  Tunnel Server │                 │
-│                           │   (Remote)     │                 │
-│                           └────────────────┘                 │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                         Docker Compose                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────────┐      ┌─────────────────────┐           │
+│  │   tunnel-client     │      │        frpc         │           │
+│  │   (Web UI + API)    │      │   (Tunnel Proxy)    │           │
+│  │                     │      │                     │           │
+│  │  - FastAPI server   │      │  - frpc binary      │           │
+│  │  - Config generator │─────►│  - Admin API :7400  │           │
+│  │  - Server API client│      │  - Always running   │           │
+│  │  - Port 3000        │      │                     │           │
+│  └──────────┬──────────┘      └──────────┬──────────┘           │
+│             │                            │                       │
+│             ▼                            ▼                       │
+│       /etc/frp/frpc.toml           frps server                  │
+│       (shared volume)              (remote)                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Components
 
-### 1. FastAPI Application (`app.py`)
+### tunnel-client Container
 
-The core of the system, handling:
-- HTTP request routing
-- Configuration loading
-- frpc.ini generation
-- Process management
-- Web UI serving
+The web application container running FastAPI:
 
-**Key responsibilities**:
-- Serve REST API endpoints
-- Serve embedded HTML/CSS/JS UI
-- Manage frpc subprocess lifecycle
-- Read and cache YAML configuration
+| Component | Purpose |
+|-----------|---------|
+| `main.py` | Application entry point, lifespan management |
+| `routers/auth.py` | Login/logout endpoints |
+| `routers/tunnels.py` | Tunnel CRUD operations |
+| `routers/service.py` | frpc status and reload |
+| `services/frpc.py` | Config generation, admin API client |
+| `services/credentials.py` | Credential storage |
+| `services/api_client.py` | Tunnel server API client |
 
-### 2. YAML Configuration (`tunnels.yaml`)
+### frpc Container
 
-User-facing configuration file defining:
-- Server connection (URL, token)
-- Tunnel definitions
+Official frpc image (`snowdreamtech/frpc:0.52.3`):
 
-**Characteristics**:
-- Human-readable format
-- Validated on load
-- Cached in memory
-- Hot-reloadable
+- Runs the frpc binary continuously
+- Reads config from shared volume `/etc/frp/frpc.toml`
+- Exposes admin API on port 7400
+- Auto-restarts on failure (`restart: unless-stopped`)
 
-### 3. frpc Configuration Generator
+### Shared Volume
 
-Transforms YAML config into frpc.ini format.
+The `frpc-config` volume at `/etc/frp`:
 
-**Input** (YAML):
-```yaml
-server:
-  url: "server.com:7000"
-  token: "abc123"
-tunnels:
-  - name: web
-    type: http
-    local_port: 8080
-    subdomain: app
-```
-
-**Output** (`/etc/frp/frpc.ini`):
-```ini
-[common]
-server_addr = server.com
-server_port = 7000
-token = abc123
-
-[web]
-type = http
-local_ip = 127.0.0.1
-local_port = 8080
-subdomain = app
-```
-
-### 4. frpc Process Manager
-
-Controls the frpc subprocess:
-- Start with proper arguments
-- Monitor via PID file
-- Graceful shutdown
-- Process group management
-
-### 5. Web UI
-
-Single-page application embedded in Python:
-- Pure HTML/CSS/JavaScript
-- No external dependencies
-- Communicates via REST API
-- Auto-refreshing status
+- Contains `frpc.toml` (TOML format)
+- Written by tunnel-client
+- Read by frpc container
+- Persists across restarts
 
 ---
 
 ## Data Flow
 
-### Startup Flow
+### Login Flow
 
 ```
-1. Application starts
+1. User enters credentials in Web UI
    │
    ▼
-2. Load tunnels.yaml
-   │
-   ├─ Not found → Show "No Config" screen
+2. POST /api/login → tunnel-client
    │
    ▼
-3. Cache configuration
+3. Forward to tunnel server API
    │
    ▼
-4. Check for existing frpc process
-   │
-   ├─ Running → Note PID
+4. Receive access_token + tunnel_token
    │
    ▼
-5. Start Uvicorn server
+5. Save to credentials.json
    │
    ▼
-6. Ready to serve requests
+6. Fetch tunnels from server
+   │
+   ▼
+7. Generate frpc.toml config
+   │
+   ▼
+8. Call frpc admin API to reload
+   │
+   ▼
+9. frpc connects to frps server
 ```
 
-### Request Flow
+### Tunnel Change Flow
 
 ```
-                    HTTP Request
-                         │
-                         ▼
-              ┌──────────────────┐
-              │  FastAPI Router  │
-              └────────┬─────────┘
-                       │
-       ┌───────────────┼───────────────┐
-       ▼               ▼               ▼
-   GET /           GET /api/*     POST /api/*
-       │               │               │
-       ▼               ▼               ▼
-  Return HTML    Read State      Modify State
-                       │               │
-                       ▼               ▼
-              ┌────────────────────────────┐
-              │   Configuration Cache      │
-              │   Process State           │
-              └────────────────────────────┘
-```
-
-### Tunnel Creation Flow
-
-```
-1. User edits tunnels.yaml
+1. User creates/updates tunnel via UI
    │
    ▼
-2. User clicks "Reload Config"
+2. POST/PUT /api/tunnels → tunnel-client
    │
    ▼
-3. POST /api/reload
+3. Forward to tunnel server API
    │
    ▼
-4. Reload YAML file
+4. Regenerate frpc.toml
    │
    ▼
-5. Update cache
+5. GET http://frpc:7400/api/reload
    │
    ▼
-6. Regenerate frpc.ini
-   │
-   ▼
-7. If frpc running → Restart
-   │
-   ▼
-8. Return success
+6. frpc hot-reloads config (no restart)
 ```
 
 ---
 
-## File Structure
+## Configuration Files
 
-### Project Files
+### credentials.json
 
-```
-tunnel-client/
-├── app.py                 # Main application (single file)
-├── tunnels.yaml           # User configuration
-├── tunnels.example.yaml   # Example configuration
-├── requirements.txt       # Python dependencies
-├── install.sh             # Installation script
-├── README.md              # Project readme
-├── CLAUDE.md              # AI assistant guide
-└── docs/                  # Documentation
-    ├── README.md          # Docs index
-    ├── getting-started/
-    ├── configuration/
-    ├── usage/
-    ├── api/
-    ├── examples/
-    ├── troubleshooting/
-    └── architecture/
+Stored in the tunnel-client container:
+
+```json
+{
+  "server_url": "http://tunnel.example.com:8000",
+  "access_token": "jwt-token-here",
+  "tunnel_token": "frp-auth-token",
+  "user_email": "user@example.com"
+}
 ```
 
-### Runtime Files
+### frpc.toml
 
-| File | Location | Purpose | Permissions |
-|------|----------|---------|-------------|
-| frpc.ini | `/etc/frp/frpc.ini` | frpc configuration | 0600 |
-| frpc.pid | `/tmp/frpc.pid` | Process ID | 0600 |
-| frpc.log | `/tmp/frpc.log` | frpc output | 0644 |
+Generated TOML config in shared volume:
 
-### Configuration Constants
+```toml
+serverAddr = "tunnel.example.com"
+serverPort = 7000
+auth.token = "frp-auth-token"
 
-```python
-CONFIG_FILE = "tunnels.yaml"      # YAML config location
-FRPC_CONFIG = "/etc/frp/frpc.ini" # Generated config
-FRPC_PID_FILE = "/tmp/frpc.pid"   # PID file
-FRPC_LOG_FILE = "/tmp/frpc.log"   # Log file
-```
+webServer.addr = "0.0.0.0"
+webServer.port = 7400
 
----
-
-## Configuration Flow
-
-### Loading Configuration
-
-```python
-# On startup or reload
-def load_config(config_path=None):
-    path = config_path or CONFIG_FILE
-    with open(path, 'r') as f:
-        config = yaml.safe_load(f)
-    _config_cache = config
-    return config
-```
-
-### Configuration Cache
-
-- Loaded once at startup
-- Cached in global `_config_cache`
-- Invalidated on reload
-- Thread-safe (GIL protected)
-
-### Generating frpc.ini
-
-```python
-async def regenerate_frpc_config():
-    config = get_cached_config()
-
-    # Extract server settings
-    server = config.get('server', {})
-    server_addr = parse_url(server['url'])
-
-    # Build config content
-    content = f"""[common]
-server_addr = {server_addr}
-server_port = {server_port}
-token = {server['token']}
-"""
-
-    # Add each tunnel
-    for tunnel in config.get('tunnels', []):
-        content += generate_tunnel_section(tunnel)
-
-    # Write with secure permissions
-    with open(FRPC_CONFIG, 'w') as f:
-        f.write(content)
-    os.chmod(FRPC_CONFIG, 0o600)
-```
-
----
-
-## Process Management
-
-### Starting frpc
-
-```python
-async def start_service():
-    # Check not already running
-    status = await get_status()
-    if status["running"]:
-        raise HTTPException(400, "Already running")
-
-    # Generate config
-    await regenerate_frpc_config()
-
-    # Start process
-    process = subprocess.Popen(
-        ["/usr/local/bin/frpc", "-c", FRPC_CONFIG],
-        stdout=log_file,
-        stderr=log_file,
-        start_new_session=True  # Process group
-    )
-
-    # Save PID
-    with open(FRPC_PID_FILE, 'w') as f:
-        f.write(str(process.pid))
-```
-
-### Stopping frpc
-
-```python
-async def stop_service():
-    pid = get_current_pid()
-
-    # Kill process group for clean shutdown
-    try:
-        pgid = os.getpgid(pid)
-        os.killpg(pgid, signal.SIGTERM)
-    except:
-        os.kill(pid, signal.SIGTERM)
-
-    # Wait for termination
-    for _ in range(50):  # 5 seconds
-        try:
-            os.kill(pid, 0)
-            time.sleep(0.1)
-        except OSError:
-            break
-
-    # Cleanup PID file
-    os.remove(FRPC_PID_FILE)
-```
-
-### Status Checking
-
-```python
-async def get_status():
-    if not os.path.exists(FRPC_PID_FILE):
-        return {"running": False, "pid": None}
-
-    pid = int(open(FRPC_PID_FILE).read())
-
-    try:
-        os.kill(pid, 0)  # Check if alive
-        return {"running": True, "pid": pid}
-    except OSError:
-        os.remove(FRPC_PID_FILE)  # Stale
-        return {"running": False, "pid": None}
+[[proxies]]
+name = "my-app"
+type = "http"
+localIP = "host.docker.internal"
+localPort = 8080
+subdomain = "myapp"
 ```
 
 ---
 
 ## API Architecture
 
-### Endpoint Structure
+### External APIs
 
-```
-GET  /              → HTML UI
-GET  /api/config    → Configuration info
-GET  /api/tunnels   → Tunnel list
-GET  /api/status    → Service status
-POST /api/start     → Start frpc
-POST /api/stop      → Stop frpc
-POST /api/restart   → Restart frpc
-POST /api/reload    → Reload config
-```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /` | GET | Web UI (HTML) |
+| `POST /api/login` | POST | Authenticate with server |
+| `POST /api/logout` | POST | Clear credentials, mark offline |
+| `GET /api/tunnels` | GET | List tunnels from server |
+| `POST /api/tunnels` | POST | Create tunnel on server |
+| `PUT /api/tunnels/{id}` | PUT | Update tunnel on server |
+| `DELETE /api/tunnels/{id}` | DELETE | Delete tunnel from server |
+| `GET /api/status` | GET | frpc connection status |
+| `POST /api/restart` | POST | Regenerate config, reload frpc |
 
-### Response Format
+### Internal APIs
 
-All API responses are JSON:
+| Endpoint | Container | Purpose |
+|----------|-----------|---------|
+| `http://frpc:7400/api/status` | frpc | Get proxy status |
+| `http://frpc:7400/api/reload` | frpc | Hot-reload config |
 
-```json
-{
-  "key": "value",
-  "nested": {
-    "data": "here"
-  }
-}
-```
+---
 
-Errors follow FastAPI format:
+## Environment Variables
 
-```json
-{
-  "detail": "Error message"
-}
-```
-
-### Middleware
-
-- **CORS**: Not configured (local access only)
-- **Authentication**: None (relies on localhost binding)
-- **Logging**: Request logging via uvicorn
+| Variable | Container | Purpose |
+|----------|-----------|---------|
+| `SERVER_URL` | tunnel-client | Pre-configured server URL |
+| `TUNNEL_TOKEN` | tunnel-client | Override tunnel token |
+| `FRPC_ADMIN_URL` | tunnel-client | frpc admin API URL |
 
 ---
 
 ## Security Model
 
-### Access Control
+### Network Isolation
 
-| Control | Implementation |
-|---------|----------------|
-| Network binding | `127.0.0.1` by default |
-| File permissions | Config 0600, PID 0600 |
-| Token storage | In YAML file (user-managed) |
+- tunnel-client exposes port 3002 (mapped from 3000)
+- frpc admin API (7400) only accessible within Docker network
+- frpc connects outbound to frps server
 
-### Recommendations
+### Credential Storage
 
-1. **Never expose to internet**: Use `127.0.0.1` only
-2. **Protect tunnels.yaml**: Contains secrets
-3. **Add to .gitignore**: Prevent token commits
-4. **Use strong tokens**: Get from admin
+- `credentials.json` stored with 0600 permissions
+- `frpc.toml` stored with 0600 permissions
+- Tokens passed via environment variables
 
-### File Permission Hardening
+### Authentication
 
-```python
-# Config file
-os.chmod(FRPC_CONFIG, stat.S_IRUSR | stat.S_IWUSR)  # 0600
-
-# PID file
-os.chmod(FRPC_PID_FILE, stat.S_IRUSR | stat.S_IWUSR)  # 0600
-```
+- Web UI requires login to tunnel server
+- JWT access_token for API calls
+- tunnel_token for frpc-to-frps authentication
 
 ---
 
-## Extending the System
+## File Structure
 
-### Adding a New Endpoint
-
-```python
-@app.get("/api/new-endpoint")
-async def new_endpoint():
-    """Description of endpoint"""
-    return {"key": "value"}
 ```
-
-### Adding Tunnel Types
-
-1. Update YAML schema
-2. Update frpc.ini generator
-3. Update validation
-4. Update UI (if needed)
-
-### Adding Configuration Options
-
-1. Define in YAML structure
-2. Update `load_config()` to read it
-3. Update `regenerate_frpc_config()` to use it
-4. Document in configuration guide
+tunnel-client/
+├── tunnel_client/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app, lifespan
+│   ├── config.py            # Environment variables
+│   ├── models/
+│   │   └── schemas.py       # Pydantic models
+│   ├── services/
+│   │   ├── credentials.py   # Credential management
+│   │   ├── frpc.py          # Config generation, admin API
+│   │   └── api_client.py    # Tunnel server API
+│   ├── routers/
+│   │   ├── auth.py          # Login/logout
+│   │   ├── tunnels.py       # Tunnel CRUD
+│   │   └── service.py       # frpc control
+│   ├── static/              # CSS, JS
+│   └── templates/           # HTML templates
+├── docker-compose.yaml
+├── Dockerfile
+├── requirements.txt
+└── credentials.json         # Runtime, gitignored
+```
 
 ---
 
@@ -488,19 +250,10 @@ async def new_endpoint():
 | Web Framework | FastAPI |
 | ASGI Server | Uvicorn |
 | Validation | Pydantic |
-| Config Parsing | PyYAML |
-| Process Management | subprocess, os |
-| Frontend | Vanilla HTML/CSS/JS |
-| Tunnel Proxy | frpc (FRP client) |
+| HTTP Client | Requests |
+| Tunnel Proxy | frpc (FRP) |
+| Container | Docker |
 
 ---
 
-## Navigation
-
-| Previous | Up | Next |
-|----------|-----|------|
-| [Troubleshooting](../troubleshooting/) | [Documentation Index](../) | [Getting Started](../getting-started/) |
-
----
-
-[Back to Index](../) | [Getting Started](../getting-started/) | [Configuration](../configuration/) | [API Reference](../api/)
+[Back to Documentation](../)

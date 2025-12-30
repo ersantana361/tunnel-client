@@ -1,469 +1,336 @@
 # API Reference
 
-This document describes the REST API endpoints provided by Tunnel Client.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Base URL](#base-url)
-- [Endpoints](#endpoints)
-  - [GET /](#get-)
-  - [GET /api/config](#get-apiconfig)
-  - [GET /api/tunnels](#get-apitunnels)
-  - [GET /api/status](#get-apistatus)
-  - [POST /api/start](#post-apistart)
-  - [POST /api/stop](#post-apistop)
-  - [POST /api/restart](#post-apirestart)
-  - [POST /api/reload](#post-apireload)
-- [Error Handling](#error-handling)
-- [Examples](#examples)
-
----
-
-## Overview
-
-The API provides:
-- **Configuration info** - Server and tunnel details
-- **Status monitoring** - frpc service state
-- **Service control** - Start, stop, restart frpc
-- **Hot reload** - Reload config without restart
-
-All responses are JSON unless otherwise noted.
+REST API endpoints for Tunnel Client.
 
 ---
 
 ## Base URL
 
 ```
-http://127.0.0.1:3000
-```
-
-If you changed the port:
-```
-http://127.0.0.1:{port}
+http://localhost:3002
 ```
 
 ---
 
-## Endpoints
+## Authentication
 
-### GET /
+### POST /api/login
 
-Returns the web UI HTML page.
+Login to tunnel server.
 
-**Response**: `text/html`
-
-```bash
-curl http://127.0.0.1:3000/
+**Request**:
+```json
+{
+  "server_url": "http://tunnel.example.com:8000",
+  "email": "user@example.com",
+  "password": "your-password"
+}
 ```
 
----
+**Response** (200):
+```json
+{
+  "message": "Login successful",
+  "user_email": "user@example.com"
+}
+```
 
-### GET /api/config
+### GET /api/auth/status
 
-Returns current configuration information.
+Check if authenticated.
 
 **Response**:
-
 ```json
 {
-  "configured": true,
-  "config_file": "tunnels.yaml",
-  "server_url": "your-server.com:7000",
-  "tunnel_count": 3
+  "authenticated": true,
+  "server_url": "http://tunnel.example.com:8000",
+  "user_email": "user@example.com"
 }
 ```
 
-**Fields**:
+### POST /api/logout
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `configured` | boolean | Whether config file exists and is valid |
-| `config_file` | string | Path to configuration file |
-| `server_url` | string | Configured server URL |
-| `tunnel_count` | integer | Number of tunnels defined |
+Logout and clear credentials.
 
-**Example**:
-
-```bash
-curl http://127.0.0.1:3000/api/config
-```
-
-**Response when not configured**:
-
+**Response**:
 ```json
 {
-  "configured": false,
-  "config_file": "tunnels.yaml",
-  "server_url": "",
-  "tunnel_count": 0
+  "message": "Logged out"
 }
 ```
 
 ---
+
+## Tunnels
 
 ### GET /api/tunnels
 
-Returns all tunnels from the configuration file.
+List all tunnels from server.
 
 **Response**:
+```json
+[
+  {
+    "id": 1,
+    "name": "my-app",
+    "type": "http",
+    "local_port": 8080,
+    "local_host": "host.docker.internal",
+    "subdomain": "myapp",
+    "is_online": true
+  }
+]
+```
 
+### POST /api/tunnels
+
+Create a new tunnel.
+
+**Request**:
+```json
+{
+  "name": "my-app",
+  "type": "http",
+  "local_port": 8080,
+  "local_host": "host.docker.internal",
+  "subdomain": "myapp"
+}
+```
+
+**Response** (201):
+```json
+{
+  "id": 1,
+  "name": "my-app",
+  "type": "http",
+  "local_port": 8080,
+  "local_host": "host.docker.internal",
+  "subdomain": "myapp"
+}
+```
+
+### PUT /api/tunnels/{id}
+
+Update a tunnel.
+
+**Request**:
+```json
+{
+  "name": "my-app",
+  "type": "http",
+  "local_port": 9000,
+  "local_host": "host.docker.internal",
+  "subdomain": "myapp"
+}
+```
+
+### DELETE /api/tunnels/{id}
+
+Delete a tunnel.
+
+**Response** (200):
+```json
+{
+  "message": "Tunnel deleted"
+}
+```
+
+---
+
+## Export/Import
+
+### GET /api/tunnels/export
+
+Export all tunnels as JSON.
+
+**Response**:
 ```json
 {
   "tunnels": [
     {
-      "name": "my-api",
-      "description": "REST API",
+      "name": "my-app",
       "type": "http",
       "local_port": 8080,
-      "subdomain": "api"
-    },
-    {
-      "name": "postgres",
-      "description": "Database",
-      "type": "tcp",
-      "local_port": 5432,
-      "remote_port": 15432
-    }
-  ],
-  "config_file": "tunnels.yaml"
-}
-```
-
-**Tunnel Fields**:
-
-| Field | Type | Presence | Description |
-|-------|------|----------|-------------|
-| `name` | string | Always | Unique tunnel identifier |
-| `description` | string | Optional | Human-readable description |
-| `type` | string | Always | `http`, `https`, `tcp`, or `udp` |
-| `local_port` | integer | Always | Local port number |
-| `subdomain` | string | HTTP/HTTPS | Subdomain for routing |
-| `remote_port` | integer | TCP/UDP | Remote port mapping |
-
-**Example**:
-
-```bash
-curl http://127.0.0.1:3000/api/tunnels
-```
-
-**Response when no tunnels**:
-
-```json
-{
-  "tunnels": [],
-  "config_file": "tunnels.yaml"
-}
-```
-
----
-
-### GET /api/status
-
-Returns the current frpc service status.
-
-**Response**:
-
-```json
-{
-  "running": true,
-  "pid": 12345
-}
-```
-
-**Fields**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `running` | boolean | Whether frpc is currently running |
-| `pid` | integer/null | Process ID if running, null if not |
-
-**Example**:
-
-```bash
-curl http://127.0.0.1:3000/api/status
-```
-
-**Response when not running**:
-
-```json
-{
-  "running": false,
-  "pid": null
-}
-```
-
----
-
-### POST /api/start
-
-Starts the frpc service.
-
-**Request**: No body required
-
-**Response** (200 OK):
-
-```json
-{
-  "message": "Service started",
-  "pid": 12345
-}
-```
-
-**Error Responses**:
-
-| Status | Body | Cause |
-|--------|------|-------|
-| 400 | `{"detail": "Already running"}` | Service is already running |
-| 500 | `{"detail": "frpc not found..."}` | frpc binary not installed |
-| 500 | `{"detail": "..."}` | Other startup errors |
-
-**Example**:
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/start
-```
-
----
-
-### POST /api/stop
-
-Stops the frpc service.
-
-**Request**: No body required
-
-**Response** (200 OK):
-
-```json
-{
-  "message": "Service stopped"
-}
-```
-
-**Error Responses**:
-
-| Status | Body | Cause |
-|--------|------|-------|
-| 400 | `{"detail": "Not running"}` | Service is not running |
-| 500 | `{"detail": "..."}` | Stop errors |
-
-**Example**:
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/stop
-```
-
----
-
-### POST /api/restart
-
-Restarts the frpc service (stop + start).
-
-**Request**: No body required
-
-**Response** (200 OK):
-
-```json
-{
-  "message": "Service restarted"
-}
-```
-
-**Behavior**:
-- If running: stops then starts
-- If not running: just starts
-
-**Example**:
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/restart
-```
-
----
-
-### POST /api/reload
-
-Reloads configuration from the YAML file.
-
-**Request**: No body required
-
-**Response** (200 OK):
-
-```json
-{
-  "message": "Configuration reloaded",
-  "tunnel_count": 5
-}
-```
-
-**Fields**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `message` | string | Success message |
-| `tunnel_count` | integer | Number of tunnels after reload |
-
-**Error Responses**:
-
-| Status | Body | Cause |
-|--------|------|-------|
-| 400 | `{"detail": "Failed to reload..."}` | Config file missing or invalid |
-
-**Behavior**:
-1. Re-reads `tunnels.yaml`
-2. Updates internal cache
-3. Regenerates `frpc.ini`
-4. If frpc running, restarts it
-
-**Example**:
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/reload
-```
-
----
-
-## Error Handling
-
-### Error Response Format
-
-All errors return JSON with a `detail` field:
-
-```json
-{
-  "detail": "Error message here"
-}
-```
-
-### HTTP Status Codes
-
-| Code | Meaning |
-|------|---------|
-| 200 | Success |
-| 400 | Bad Request (invalid input, already running, etc.) |
-| 404 | Not Found |
-| 422 | Validation Error |
-| 500 | Internal Server Error |
-
-### Validation Errors
-
-When request validation fails (422):
-
-```json
-{
-  "detail": [
-    {
-      "loc": ["body", "field_name"],
-      "msg": "field required",
-      "type": "value_error.missing"
+      "local_host": "host.docker.internal",
+      "subdomain": "myapp"
     }
   ]
 }
 ```
 
+### POST /api/tunnels/import
+
+Import tunnels from JSON.
+
+**Request**:
+```json
+{
+  "tunnels": [
+    {
+      "name": "my-app",
+      "type": "http",
+      "local_port": 8080,
+      "subdomain": "myapp"
+    }
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "created": ["my-app"],
+  "failed": []
+}
+```
+
+---
+
+## Service Control
+
+### GET /api/status
+
+Check frpc status via admin API.
+
+**Response**:
+```json
+{
+  "running": true,
+  "proxies": {
+    "http": [
+      {
+        "name": "my-app",
+        "status": "running",
+        "local_addr": "host.docker.internal:8080",
+        "remote_addr": "myapp.tunnel.example.com:8080"
+      }
+    ]
+  }
+}
+```
+
+### POST /api/start
+
+Regenerate config and reload frpc.
+
+**Response**:
+```json
+{
+  "message": "Config reloaded"
+}
+```
+
+### POST /api/stop
+
+Mark tunnels offline (frpc keeps running).
+
+**Response**:
+```json
+{
+  "message": "Tunnels marked offline"
+}
+```
+
+### POST /api/restart
+
+Regenerate config and reload frpc.
+
+**Response**:
+```json
+{
+  "message": "Config reloaded"
+}
+```
+
+---
+
+## Configuration
+
+### GET /api/config
+
+Get client configuration.
+
+**Response**:
+```json
+{
+  "server_url": "http://tunnel.example.com:8000"
+}
+```
+
+---
+
+## Error Responses
+
+All errors return JSON:
+
+```json
+{
+  "detail": "Error message"
+}
+```
+
+| Status | Meaning |
+|--------|---------|
+| 200 | Success |
+| 201 | Created |
+| 400 | Bad Request |
+| 401 | Unauthorized |
+| 404 | Not Found |
+| 500 | Server Error |
+
 ---
 
 ## Examples
 
-### Shell Script: Health Check
+### cURL Workflow
 
 ```bash
-#!/bin/bash
-# health-check.sh
+# Login
+curl -X POST http://localhost:3002/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"server_url":"http://tunnel.example.com:8000","email":"user@example.com","password":"pass"}'
 
-STATUS=$(curl -s http://127.0.0.1:3000/api/status)
-RUNNING=$(echo $STATUS | jq -r '.running')
+# List tunnels
+curl http://localhost:3002/api/tunnels
 
-if [ "$RUNNING" = "true" ]; then
-    echo "Tunnel client is healthy"
-    exit 0
-else
-    echo "Tunnel client is not running"
-    exit 1
-fi
-```
+# Create tunnel
+curl -X POST http://localhost:3002/api/tunnels \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"test","type":"http","local_port":8080,"local_host":"host.docker.internal","subdomain":"test"}'
 
-### Python: Start Service
+# Check status
+curl http://localhost:3002/api/status
 
-```python
-import requests
+# Reload config
+curl -X POST http://localhost:3002/api/restart
 
-def start_tunnel():
-    response = requests.post('http://127.0.0.1:3000/api/start')
-    if response.status_code == 200:
-        data = response.json()
-        print(f"Started with PID: {data['pid']}")
-    else:
-        print(f"Error: {response.json()['detail']}")
+# Export
+curl http://localhost:3002/api/tunnels/export > tunnels.json
 
-start_tunnel()
-```
-
-### JavaScript: Monitor Status
-
-```javascript
-async function checkStatus() {
-    const response = await fetch('http://127.0.0.1:3000/api/status');
-    const data = await response.json();
-
-    if (data.running) {
-        console.log(`Running (PID: ${data.pid})`);
-    } else {
-        console.log('Not running');
-    }
-}
-
-// Check every 5 seconds
-setInterval(checkStatus, 5000);
-```
-
-### cURL: Complete Workflow
-
-```bash
-# Check initial status
-curl -s http://127.0.0.1:3000/api/status | jq
-
-# View tunnels
-curl -s http://127.0.0.1:3000/api/tunnels | jq
-
-# Start service
-curl -X POST http://127.0.0.1:3000/api/start | jq
-
-# Check running status
-curl -s http://127.0.0.1:3000/api/status | jq
-
-# Reload config (after editing tunnels.yaml)
-curl -X POST http://127.0.0.1:3000/api/reload | jq
-
-# Stop service
-curl -X POST http://127.0.0.1:3000/api/stop | jq
+# Import
+curl -X POST http://localhost:3002/api/tunnels/import \
+  -H 'Content-Type: application/json' \
+  -d @tunnels.json
 ```
 
 ---
 
-## API Quick Reference
+## Quick Reference
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Web UI |
-| `/api/config` | GET | Configuration info |
-| `/api/tunnels` | GET | List all tunnels |
-| `/api/status` | GET | Service status |
-| `/api/start` | POST | Start frpc |
-| `/api/stop` | POST | Stop frpc |
-| `/api/restart` | POST | Restart frpc |
-| `/api/reload` | POST | Reload YAML config |
+| `/api/login` | POST | Login to server |
+| `/api/logout` | POST | Logout |
+| `/api/auth/status` | GET | Check auth |
+| `/api/tunnels` | GET | List tunnels |
+| `/api/tunnels` | POST | Create tunnel |
+| `/api/tunnels/{id}` | PUT | Update tunnel |
+| `/api/tunnels/{id}` | DELETE | Delete tunnel |
+| `/api/tunnels/export` | GET | Export tunnels |
+| `/api/tunnels/import` | POST | Import tunnels |
+| `/api/status` | GET | frpc status |
+| `/api/restart` | POST | Reload frpc |
 
 ---
 
-## Navigation
-
-| Previous | Up | Next |
-|----------|-----|------|
-| [Usage](../usage/) | [Documentation Index](../) | [Examples](../examples/) |
-
----
-
-[Back to Index](../) | [Usage](../usage/) | [Examples](../examples/) | [Troubleshooting](../troubleshooting/)
+[Back to Documentation](../)

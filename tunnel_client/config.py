@@ -5,14 +5,15 @@ import os
 
 # File paths
 CREDENTIALS_FILE = os.environ.get("CREDENTIALS_FILE", "credentials.json")
-FRPC_CONFIG = os.environ.get("FRPC_CONFIG", "/etc/frp/frpc.ini")
-FRPC_PID_FILE = os.environ.get("FRPC_PID_FILE", "/tmp/frpc.pid")
-FRPC_LOG_FILE = os.environ.get("FRPC_LOG_FILE", "/tmp/frpc.log")
-FRPC_BINARY = os.environ.get("FRPC_BINARY", "/usr/local/bin/frpc")
+FRPC_CONFIG = os.environ.get("FRPC_CONFIG", "/etc/frp/frpc.toml")
 
 # Server settings
 SERVER_URL = os.environ.get("SERVER_URL", "")  # Pre-configured server URL
+TUNNEL_TOKEN = os.environ.get("TUNNEL_TOKEN", "")  # Override tunnel token from credentials
 DEFAULT_FRP_PORT = 7000
+
+# frpc admin API (for hot reload)
+FRPC_ADMIN_URL = os.environ.get("FRPC_ADMIN_URL", "http://frpc:7400")
 
 # Configure logging
 logging.basicConfig(
