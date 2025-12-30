@@ -1,6 +1,9 @@
 let statusInterval = null;
 let serverConfigured = false;
 let editingTunnelId = null;
+let currentView = 'table';
+let sortDirection = 'asc';
+let serverDomain = null;
 
 // Initialize
 init();
@@ -32,6 +35,15 @@ async function checkAuth() {
         const data = await res.json();
 
         if (data.authenticated) {
+            // Extract domain from server URL (e.g., http://tunnel.ersantana.com:8000 -> tunnel.ersantana.com)
+            if (data.server_url) {
+                try {
+                    const url = new URL(data.server_url);
+                    serverDomain = url.hostname;
+                } catch (e) {
+                    serverDomain = null;
+                }
+            }
             showDashboard(data.email);
         } else {
             showLogin();
@@ -149,7 +161,7 @@ async function loadTunnels() {
         const list = document.getElementById('tunnelList');
         const countEl = document.getElementById('tunnelCount');
 
-        const tunnels = data.tunnels || [];
+        let tunnels = data.tunnels || [];
         countEl.textContent = '(' + tunnels.length + ')';
 
         if (tunnels.length === 0) {
@@ -157,59 +169,158 @@ async function loadTunnels() {
             return;
         }
 
-        list.innerHTML = '';
+        // Sort tunnels
+        const sortBy = document.getElementById('sortBy').value;
+        tunnels = sortTunnels(tunnels, sortBy, sortDirection);
 
-        tunnels.forEach(t => {
-            const item = document.createElement('div');
-            item.className = 'tunnel-item';
-
-            const isActive = t.is_active;
-            const statusClass = isActive ? 'active' : '';
-
-            let detailText = t.local_host + ':' + t.local_port;
-            let urlHtml = '';
-
-            if (t.public_url) {
-                urlHtml = `<div class="tunnel-url"><a href="${t.public_url}" target="_blank">${t.public_url}</a></div>`;
-            } else if (t.subdomain) {
-                detailText += ' → ' + t.subdomain + '.[server]';
-            } else if (t.remote_port) {
-                detailText += ' → [server]:' + t.remote_port;
-            }
-
-            let lastConnected = '';
-            if (t.last_connected) {
-                lastConnected = 'Last connected: ' + new Date(t.last_connected).toLocaleString();
-            }
-
-            item.innerHTML = `
-                <div class="tunnel-header">
-                    <div class="tunnel-name-wrap">
-                        <div class="tunnel-status-dot ${statusClass}"></div>
-                        <span class="tunnel-name">${t.name}</span>
-                        <span class="tunnel-type">${t.type}</span>
-                    </div>
-                    <div>
-                        <button class="btn btn-secondary btn-sm" onclick='editTunnel(${JSON.stringify(t)})'>Edit</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteTunnel(${t.id})">Delete</button>
-                    </div>
-                </div>
-                <div class="tunnel-details">${detailText}</div>
-                ${urlHtml}
-                <div class="tunnel-meta">
-                    <span class="tunnel-last-connected">${lastConnected}</span>
-                    <span style="color: ${isActive ? '#22c55e' : '#64748b'}; font-size: 12px;">
-                        ${isActive ? 'Active' : 'Inactive'}
-                    </span>
-                </div>
-            `;
-
-            list.appendChild(item);
-        });
+        // Render based on current view
+        if (currentView === 'table') {
+            renderTableView(list, tunnels);
+        } else {
+            renderCardView(list, tunnels);
+        }
     } catch (e) {
         console.error('Failed to load tunnels:', e);
         showAlert('Network error loading tunnels', 'error');
     }
+}
+
+function getPublicUrl(tunnel) {
+    // Construct correct public URL using server domain
+    if (tunnel.subdomain && serverDomain) {
+        const protocol = tunnel.type === 'https' ? 'https' : 'http';
+        return `${protocol}://${tunnel.subdomain}.${serverDomain}`;
+    }
+    return tunnel.public_url || null;
+}
+
+function sortTunnels(tunnels, sortBy, direction) {
+    return tunnels.slice().sort((a, b) => {
+        let aVal = a[sortBy];
+        let bVal = b[sortBy];
+
+        if (typeof aVal === 'string') {
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+        }
+
+        let result = 0;
+        if (aVal < bVal) result = -1;
+        else if (aVal > bVal) result = 1;
+
+        return direction === 'asc' ? result : -result;
+    });
+}
+
+function renderTableView(container, tunnels) {
+    let html = `
+        <table class="tunnel-table">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Local</th>
+                    <th>Remote</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    tunnels.forEach(t => {
+        const isActive = t.is_active;
+        const statusClass = isActive ? 'active' : '';
+
+        let remoteText = '';
+        const publicUrl = getPublicUrl(t);
+        if (publicUrl) {
+            remoteText = `<a href="${publicUrl}" target="_blank">${publicUrl}</a>`;
+        } else if (t.remote_port) {
+            remoteText = '[server]:' + t.remote_port;
+        }
+
+        html += `
+            <tr>
+                <td><div class="tunnel-status-dot ${statusClass}"></div></td>
+                <td class="tunnel-name">${t.name}</td>
+                <td><span class="tunnel-type">${t.type}</span></td>
+                <td>${t.local_host}:${t.local_port}</td>
+                <td class="tunnel-remote">${remoteText}</td>
+                <td class="actions">
+                    <button class="btn btn-secondary btn-sm" onclick='editTunnel(${JSON.stringify(t)})'>Edit</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteTunnel(${t.id})">Delete</button>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function renderCardView(container, tunnels) {
+    container.innerHTML = '';
+
+    tunnels.forEach(t => {
+        const item = document.createElement('div');
+        item.className = 'tunnel-item';
+
+        const isActive = t.is_active;
+        const statusClass = isActive ? 'active' : '';
+
+        let detailText = t.local_host + ':' + t.local_port;
+        let urlHtml = '';
+
+        const publicUrl = getPublicUrl(t);
+        if (publicUrl) {
+            urlHtml = `<div class="tunnel-url"><a href="${publicUrl}" target="_blank">${publicUrl}</a></div>`;
+        } else if (t.remote_port) {
+            detailText += ' → [server]:' + t.remote_port;
+        }
+
+        let lastConnected = '';
+        if (t.last_connected) {
+            lastConnected = 'Last connected: ' + new Date(t.last_connected).toLocaleString();
+        }
+
+        item.innerHTML = `
+            <div class="tunnel-header">
+                <div class="tunnel-name-wrap">
+                    <div class="tunnel-status-dot ${statusClass}"></div>
+                    <span class="tunnel-name">${t.name}</span>
+                    <span class="tunnel-type">${t.type}</span>
+                </div>
+                <div>
+                    <button class="btn btn-secondary btn-sm" onclick='editTunnel(${JSON.stringify(t)})'>Edit</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteTunnel(${t.id})">Delete</button>
+                </div>
+            </div>
+            <div class="tunnel-details">${detailText}</div>
+            ${urlHtml}
+            <div class="tunnel-meta">
+                <span class="tunnel-last-connected">${lastConnected}</span>
+                <span style="color: ${isActive ? '#22c55e' : '#64748b'}; font-size: 12px;">
+                    ${isActive ? 'Active' : 'Inactive'}
+                </span>
+            </div>
+        `;
+
+        container.appendChild(item);
+    });
+}
+
+function setView(view) {
+    currentView = view;
+    document.getElementById('btnTableView').classList.toggle('active', view === 'table');
+    document.getElementById('btnCardView').classList.toggle('active', view === 'cards');
+    loadTunnels();
+}
+
+function toggleSortDirection() {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    document.getElementById('sortDirBtn').textContent = sortDirection === 'asc' ? '↑' : '↓';
+    loadTunnels();
 }
 
 function toggleCreateForm() {

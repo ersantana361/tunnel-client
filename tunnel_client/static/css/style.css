@@ -263,3 +263,112 @@ h1 {
     padding: 40px;
     color: #64748b;
 }
+
+/* View Controls */
+.view-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding: 10px 0;
+    border-bottom: 1px solid #334155;
+}
+
+.sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sort-controls label {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.sort-controls select {
+    padding: 6px 10px;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+.sort-dir-btn {
+    width: 32px;
+    padding: 6px !important;
+    background: #334155 !important;
+}
+
+.view-toggle {
+    display: flex;
+    gap: 5px;
+}
+
+.view-btn {
+    background: #334155 !important;
+    border: 1px solid #475569 !important;
+}
+
+.view-btn.active {
+    background: #3b82f6 !important;
+    border-color: #3b82f6 !important;
+}
+
+.header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Table View */
+.tunnel-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.tunnel-table th {
+    text-align: left;
+    padding: 12px 10px;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    border-bottom: 1px solid #334155;
+}
+
+.tunnel-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #1e293b;
+    font-size: 14px;
+}
+
+.tunnel-table tr:hover {
+    background: #1e293b;
+}
+
+.tunnel-table .tunnel-name {
+    color: #38bdf8;
+    font-weight: 600;
+}
+
+.tunnel-table .tunnel-type {
+    display: inline-block;
+}
+
+.tunnel-table .tunnel-remote a {
+    color: #22c55e;
+    text-decoration: none;
+}
+
+.tunnel-table .tunnel-remote a:hover {
+    text-decoration: underline;
+}
+
+.tunnel-table .actions {
+    white-space: nowrap;
+}
+
+.tunnel-table .tunnel-status-dot {
+    margin: 0 auto;
+}
