@@ -10,6 +10,7 @@ env/
 
 # Local config and credentials
 credentials.json
+tunnels.json
 tunnels.yaml
 *.db
 

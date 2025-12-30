@@ -112,6 +112,8 @@ tunnel_client/
 - `POST /api/tunnels` - Create tunnel on server
 - `PUT /api/tunnels/{id}` - Update tunnel on server
 - `DELETE /api/tunnels/{id}` - Delete tunnel from server
+- `GET /api/tunnels/export` - Export all tunnels as JSON
+- `POST /api/tunnels/import` - Import tunnels from JSON
 - `GET /api/status` - Check if frpc is running
 - `POST /api/start`, `POST /api/stop`, `POST /api/restart` - Control frpc process
 
@@ -161,6 +163,44 @@ If the server token changes:
 2. Restart container: `docker compose down && docker compose up -d`
 3. The frpc config will be regenerated with the new token on startup
 
+## Export/Import Tunnels
+
+Export and import tunnel configurations via the UI buttons or API.
+
+### Export Format
+```json
+{
+  "tunnels": [
+    {
+      "name": "myapp",
+      "type": "http",
+      "local_port": 8080,
+      "local_host": "127.0.0.1",
+      "subdomain": "myapp"
+    }
+  ]
+}
+```
+
+### CLI Usage
+```bash
+# Export tunnels to file
+curl -s http://localhost:3002/api/tunnels/export > tunnels.json
+
+# Import tunnels from file
+curl -X POST http://localhost:3002/api/tunnels/import \
+  -H 'Content-Type: application/json' \
+  -d @tunnels.json
+```
+
+### Import Response
+```json
+{
+  "created": ["tunnel1", "tunnel2"],
+  "failed": [{"name": "tunnel3", "error": "Subdomain already exists"}]
+}
+```
+
 ## Dependencies
 - FastAPI + Uvicorn for web server
 - Pydantic for request validation
@@ -171,7 +211,8 @@ If the server token changes:
 | File | Purpose |
 |------|---------|
 | `tunnel_client/` | Main Python package |
-| `credentials.json` | User credentials (runtime) |
+| `credentials.json` | User credentials (runtime, gitignored) |
+| `tunnels.json` | Exported tunnel configs (runtime, gitignored) |
 | `requirements.txt` | Python dependencies |
 | `Dockerfile` | Container build |
 | `docker-compose.yaml` | Docker orchestration |

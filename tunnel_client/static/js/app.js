@@ -388,3 +388,87 @@ function showAlert(message, type) {
     alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
     setTimeout(() => alertContainer.innerHTML = '', 3000);
 }
+
+async function exportTunnels() {
+    try {
+        const res = await fetch('/api/tunnels/export');
+        if (res.status === 401) {
+            showLogin();
+            return;
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            showAlert(error.detail || 'Failed to export tunnels', 'error');
+            return;
+        }
+        const data = await res.json();
+
+        // Download as JSON file
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tunnels-export.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showAlert('Tunnels exported successfully', 'success');
+    } catch (e) {
+        showAlert('Network error', 'error');
+    }
+}
+
+function triggerImport() {
+    document.getElementById('importFileInput').click();
+}
+
+async function handleImportFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        if (!data.tunnels || !Array.isArray(data.tunnels)) {
+            showAlert('Invalid file format: expected {"tunnels": [...]}', 'error');
+            return;
+        }
+
+        const res = await fetch('/api/tunnels/import', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+
+        if (res.status === 401) {
+            showLogin();
+            return;
+        }
+
+        const result = await res.json();
+
+        if (result.created.length > 0) {
+            showAlert(`Imported ${result.created.length} tunnel(s)`, 'success');
+            loadTunnels();
+        }
+        if (result.failed && result.failed.length > 0) {
+            const failedNames = result.failed.map(f => f.name).join(', ');
+            showAlert(`Failed to import: ${failedNames}`, 'error');
+        }
+        if (result.created.length === 0 && (!result.failed || result.failed.length === 0)) {
+            showAlert('No tunnels to import', 'error');
+        }
+    } catch (e) {
+        if (e instanceof SyntaxError) {
+            showAlert('Invalid JSON file', 'error');
+        } else {
+            showAlert('Failed to import tunnels', 'error');
+        }
+    }
+
+    // Reset file input
+    event.target.value = '';
+}
