@@ -1,21 +1,55 @@
 """frpc service - config generation and admin API client"""
 
+import json
 import os
 import stat
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from ..config import (
     FRPC_CONFIG,
     DEFAULT_FRP_PORT,
     TUNNEL_TOKEN,
     FRPC_ADMIN_URL,
+    METRICS_PROXY_HOST,
+    METRICS_PROXY_PORT,
     get_logger,
 )
 from .credentials import get_credentials
 from .api_client import fetch_tunnels, update_all_tunnels_status
 
 logger = get_logger(__name__)
+
+# Path for tunnel targets mapping (used by metrics-proxy)
+TUNNEL_TARGETS_FILE = os.path.join(os.path.dirname(FRPC_CONFIG), "tunnel_targets.json")
+
+
+def write_tunnel_targets(tunnels: List[Dict[str, Any]]) -> bool:
+    """Write tunnel targets mapping file for metrics-proxy
+
+    This file maps tunnel names to their actual local targets,
+    allowing the metrics-proxy to forward requests correctly.
+    """
+    targets = {}
+    for tunnel in tunnels:
+        name = tunnel.get('name', 'unnamed')
+        targets[name] = {
+            'host': tunnel.get('local_host', '127.0.0.1'),
+            'port': tunnel.get('local_port', 8080)
+        }
+
+    try:
+        config_dir = os.path.dirname(TUNNEL_TARGETS_FILE)
+        os.makedirs(config_dir, exist_ok=True)
+
+        with open(TUNNEL_TARGETS_FILE, 'w') as f:
+            json.dump(targets, f, indent=2)
+
+        logger.info(f"Wrote tunnel targets for {len(targets)} tunnel(s)")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write tunnel targets: {e}")
+        return False
 
 
 def get_frpc_status() -> Dict[str, Any]:
@@ -37,7 +71,11 @@ def get_frpc_status() -> Dict[str, Any]:
 
 
 def regenerate_frpc_config() -> bool:
-    """Generate frpc.ini from server tunnels"""
+    """Generate frpc.toml from server tunnels
+
+    For HTTP/HTTPS tunnels, routes through metrics-proxy for request timing.
+    TCP tunnels connect directly to local services.
+    """
     creds = get_credentials()
     if not creds:
         logger.error("No credentials - cannot generate frpc config")
@@ -48,6 +86,9 @@ def regenerate_frpc_config() -> bool:
     if tunnels is None:
         logger.error("Failed to fetch tunnels from server")
         return False
+
+    # Write tunnel targets for metrics-proxy
+    write_tunnel_targets(tunnels)
 
     # Parse server URL for frpc config
     server_url = creds["server_url"]
@@ -80,8 +121,17 @@ webServer.port = 7400
         config_content += f'[[proxies]]\n'
         config_content += f'name = "{name}"\n'
         config_content += f'type = "{tunnel_type}"\n'
-        config_content += f'localIP = "{local_host}"\n'
-        config_content += f'localPort = {local_port}\n'
+
+        # Route HTTP/HTTPS through metrics-proxy for request timing
+        if tunnel_type in ('http', 'https'):
+            config_content += f'localIP = "{METRICS_PROXY_HOST}"\n'
+            config_content += f'localPort = {METRICS_PROXY_PORT}\n'
+            # Add header to identify tunnel in metrics-proxy
+            config_content += f'requestHeaders.set.x-tunnel-name = "{name}"\n'
+        else:
+            # TCP tunnels go direct (no HTTP headers available)
+            config_content += f'localIP = "{local_host}"\n'
+            config_content += f'localPort = {local_port}\n'
 
         if subdomain:
             config_content += f'subdomain = "{subdomain}"\n'

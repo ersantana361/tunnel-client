@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .config import get_logger
-from .routers import auth_router, tunnels_router, service_router
+from .routers import auth_router, tunnels_router, service_router, metrics_router
 from .services.frpc import auto_start_frpc
 
 logger = get_logger(__name__)
@@ -48,6 +48,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(tunnels_router)
     app.include_router(service_router)
+    app.include_router(metrics_router)
 
     # Serve index.html at root
     @app.get("/")

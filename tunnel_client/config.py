@@ -15,6 +15,10 @@ DEFAULT_FRP_PORT = 7000
 # frpc admin API (for hot reload)
 FRPC_ADMIN_URL = os.environ.get("FRPC_ADMIN_URL", "http://frpc:7400")
 
+# Metrics proxy settings (for per-request timing)
+METRICS_PROXY_HOST = os.environ.get("METRICS_PROXY_HOST", "metrics-proxy")
+METRICS_PROXY_PORT = int(os.environ.get("METRICS_PROXY_PORT", "8080"))
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,

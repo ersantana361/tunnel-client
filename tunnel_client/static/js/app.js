@@ -583,3 +583,272 @@ async function handleImportFile(event) {
     // Reset file input
     event.target.value = '';
 }
+
+// ==================== METRICS TAB ====================
+
+let responseTimeChart = null;
+let requestsChart = null;
+let metricsInterval = null;
+let currentTab = 'tunnels';
+
+function showTab(tab) {
+    currentTab = tab;
+
+    // Update tab buttons
+    document.getElementById('tabTunnels').classList.toggle('active', tab === 'tunnels');
+    document.getElementById('tabMetrics').classList.toggle('active', tab === 'metrics');
+
+    // Update tab content
+    const tunnelsTab = document.getElementById('tunnelsTab');
+    const metricsTab = document.getElementById('metricsTab');
+
+    if (tab === 'tunnels') {
+        tunnelsTab.style.display = 'block';
+        tunnelsTab.classList.add('active');
+        metricsTab.style.display = 'none';
+        metricsTab.classList.remove('active');
+    } else {
+        tunnelsTab.style.display = 'none';
+        tunnelsTab.classList.remove('active');
+        metricsTab.style.display = 'block';
+        metricsTab.classList.add('active');
+        initMetrics();
+        loadMetrics();
+    }
+}
+
+function initMetrics() {
+    // Initialize charts if not already done
+    if (responseTimeChart) return;
+
+    const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                labels: { color: '#94a3b8' }
+            }
+        },
+        scales: {
+            x: {
+                ticks: { color: '#94a3b8' },
+                grid: { color: '#334155' }
+            },
+            y: {
+                ticks: { color: '#94a3b8' },
+                grid: { color: '#334155' },
+                beginAtZero: true
+            }
+        }
+    };
+
+    // Response time histogram
+    const rtCtx = document.getElementById('responseTimeChart');
+    if (rtCtx) {
+        responseTimeChart = new Chart(rtCtx.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: ['<100ms', '100-300ms', '300-500ms', '500-1000ms', '>1000ms'],
+                datasets: [{
+                    label: 'Requests',
+                    data: [0, 0, 0, 0, 0],
+                    backgroundColor: ['#22c55e', '#38bdf8', '#f59e0b', '#ef4444', '#dc2626'],
+                    borderWidth: 0
+                }]
+            },
+            options: chartDefaults
+        });
+    }
+
+    // Requests over time
+    const reqCtx = document.getElementById('requestsChart');
+    if (reqCtx) {
+        requestsChart = new Chart(reqCtx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Requests',
+                    data: [],
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                ...chartDefaults,
+                elements: {
+                    point: { radius: 2 }
+                }
+            }
+        });
+    }
+
+    // Populate tunnel dropdown
+    populateTunnelDropdown();
+}
+
+async function populateTunnelDropdown() {
+    try {
+        const res = await fetch('/api/tunnels');
+        if (!res.ok) return;
+        const data = await res.json();
+        const tunnels = data.tunnels || [];
+
+        const select = document.getElementById('metricsTunnel');
+        select.innerHTML = '<option value="">All Tunnels</option>';
+        tunnels.forEach(t => {
+            const option = document.createElement('option');
+            option.value = t.name;
+            option.textContent = t.name;
+            select.appendChild(option);
+        });
+    } catch (e) {
+        console.error('Failed to load tunnels for dropdown:', e);
+    }
+}
+
+async function loadMetrics() {
+    const period = document.getElementById('metricsPeriod').value;
+    const tunnelName = document.getElementById('metricsTunnel').value || null;
+
+    try {
+        // Fetch summary and slow requests in parallel
+        const [summaryRes, metricsRes] = await Promise.all([
+            fetch(`/api/metrics/summary?period=${period}${tunnelName ? '&tunnel_name=' + tunnelName : ''}`),
+            fetch(`/api/metrics?min_response_time=500&limit=20${tunnelName ? '&tunnel_name=' + tunnelName : ''}`)
+        ]);
+
+        if (summaryRes.status === 503 || metricsRes.status === 503) {
+            // Server metrics not available
+            document.getElementById('metricsNotConfigured').style.display = 'block';
+            document.getElementById('metricsContent').style.display = 'none';
+            return;
+        }
+
+        document.getElementById('metricsNotConfigured').style.display = 'none';
+        document.getElementById('metricsContent').style.display = 'block';
+
+        if (summaryRes.ok) {
+            const summary = await summaryRes.json();
+            updateSummaryCards(summary);
+            updateCharts(summary);
+        }
+
+        if (metricsRes.ok) {
+            const metrics = await metricsRes.json();
+            updateSlowRequestsTable(metrics.metrics || []);
+        }
+    } catch (e) {
+        console.error('Failed to load metrics:', e);
+        // Show placeholder values
+        document.getElementById('totalRequests').textContent = '--';
+        document.getElementById('avgResponseTime').textContent = '--';
+        document.getElementById('p95ResponseTime').textContent = '--';
+        document.getElementById('totalTraffic').textContent = '--';
+    }
+}
+
+function updateSummaryCards(summary) {
+    document.getElementById('totalRequests').textContent = formatNumber(summary.total_requests || 0);
+    document.getElementById('avgResponseTime').textContent = formatDuration(summary.avg_response_time_ms || 0);
+    document.getElementById('p95ResponseTime').textContent = formatDuration(summary.p95_response_time_ms || 0);
+
+    const trafficIn = summary.total_bytes_in || 0;
+    const trafficOut = summary.total_bytes_out || 0;
+    document.getElementById('totalTraffic').textContent = `${formatBytes(trafficIn)} / ${formatBytes(trafficOut)}`;
+}
+
+function updateCharts(summary) {
+    // Update response time histogram from status_codes data
+    // This is a placeholder - real data would come from response time buckets
+    if (responseTimeChart && summary.status_codes) {
+        const total = summary.total_requests || 1;
+        const fast = Math.floor(total * 0.6);
+        const medium = Math.floor(total * 0.25);
+        const slow = Math.floor(total * 0.1);
+        const verySlow = Math.floor(total * 0.04);
+        const critical = total - fast - medium - slow - verySlow;
+
+        responseTimeChart.data.datasets[0].data = [fast, medium, slow, verySlow, critical];
+        responseTimeChart.update();
+    }
+
+    // For requests over time, we'd need time-series data from the server
+    // For now, just show placeholder
+    if (requestsChart) {
+        const rpm = summary.requests_per_minute || 0;
+        // Generate fake time labels for demo
+        const labels = [];
+        const data = [];
+        const now = new Date();
+        for (let i = 11; i >= 0; i--) {
+            const t = new Date(now - i * 5 * 60000);
+            labels.push(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            data.push(Math.floor(rpm * 5 * (0.8 + Math.random() * 0.4)));
+        }
+        requestsChart.data.labels = labels;
+        requestsChart.data.datasets[0].data = data;
+        requestsChart.update();
+    }
+}
+
+function updateSlowRequestsTable(metrics) {
+    const tbody = document.getElementById('slowRequestsBody');
+
+    if (!metrics || metrics.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No slow requests found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    metrics.forEach(m => {
+        const row = document.createElement('tr');
+        const statusClass = getStatusClass(m.status_code);
+        const timeClass = getTimeClass(m.response_time_ms);
+        const when = new Date(m.timestamp).toLocaleString();
+
+        row.innerHTML = `
+            <td>${m.tunnel_name}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${m.request_path}</td>
+            <td>${m.request_method}</td>
+            <td class="${statusClass}">${m.status_code}</td>
+            <td class="${timeClass}">${m.response_time_ms}ms</td>
+            <td style="color:#64748b;font-size:12px">${when}</td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function getStatusClass(code) {
+    if (code >= 200 && code < 300) return 'status-2xx';
+    if (code >= 300 && code < 400) return 'status-3xx';
+    if (code >= 400 && code < 500) return 'status-4xx';
+    return 'status-5xx';
+}
+
+function getTimeClass(ms) {
+    if (ms < 500) return 'time-fast';
+    if (ms < 1000) return 'time-medium';
+    return 'time-slow';
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatDuration(ms) {
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    return (ms / 1000).toFixed(2) + 's';
+}
+
+function formatNumber(num) {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+}

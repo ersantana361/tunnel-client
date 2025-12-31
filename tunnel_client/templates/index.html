@@ -5,6 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -56,6 +57,14 @@
                 </div>
             </div>
 
+            <!-- Tab Navigation -->
+            <div class="tab-nav">
+                <button class="tab-btn active" id="tabTunnels" onclick="showTab('tunnels')">Tunnels</button>
+                <button class="tab-btn" id="tabMetrics" onclick="showTab('metrics')">Metrics</button>
+            </div>
+
+            <!-- Tunnels Tab -->
+            <div id="tunnelsTab" class="tab-content active">
             <!-- Tunnels Section -->
             <div class="section">
                 <h2>
@@ -132,6 +141,89 @@
                     <p style="color: #64748b">Loading...</p>
                 </div>
             </div>
+            </div><!-- End Tunnels Tab -->
+
+            <!-- Metrics Tab -->
+            <div id="metricsTab" class="tab-content" style="display:none">
+                <div class="section">
+                    <h2>Request Metrics</h2>
+
+                    <!-- Metrics Not Configured Message -->
+                    <div id="metricsNotConfigured" class="empty-state" style="display:none">
+                        <p>Metrics not available. The tunnel server may not have the metrics endpoint configured.</p>
+                    </div>
+
+                    <!-- Metrics Content -->
+                    <div id="metricsContent">
+                        <!-- Summary Cards -->
+                        <div class="metrics-summary">
+                            <div class="metric-card">
+                                <div class="metric-label">Total Requests</div>
+                                <div class="metric-value" id="totalRequests">--</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Avg Response Time</div>
+                                <div class="metric-value" id="avgResponseTime">--</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">p95 Response Time</div>
+                                <div class="metric-value" id="p95ResponseTime">--</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Traffic In/Out</div>
+                                <div class="metric-value" id="totalTraffic">--</div>
+                            </div>
+                        </div>
+
+                        <!-- Period Selector -->
+                        <div class="metrics-controls">
+                            <label>Period:</label>
+                            <select id="metricsPeriod" onchange="loadMetrics()">
+                                <option value="1h">Last Hour</option>
+                                <option value="24h">Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                            </select>
+                            <label style="margin-left:15px">Tunnel:</label>
+                            <select id="metricsTunnel" onchange="loadMetrics()">
+                                <option value="">All Tunnels</option>
+                            </select>
+                        </div>
+
+                        <!-- Charts -->
+                        <div class="charts-grid">
+                            <div class="chart-container">
+                                <h3>Response Time Distribution</h3>
+                                <canvas id="responseTimeChart"></canvas>
+                            </div>
+                            <div class="chart-container">
+                                <h3>Requests Over Time</h3>
+                                <canvas id="requestsChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Slow Requests Table -->
+                        <div class="slow-requests">
+                            <h3>Slow Requests (> 500ms)</h3>
+                            <table class="tunnel-table" id="slowRequestsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Tunnel</th>
+                                        <th>Path</th>
+                                        <th>Method</th>
+                                        <th>Status</th>
+                                        <th>Time</th>
+                                        <th>When</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="slowRequestsBody">
+                                    <tr><td colspan="6" style="color:#64748b;text-align:center">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- End Metrics Tab -->
+
         </div>
     </div>
 

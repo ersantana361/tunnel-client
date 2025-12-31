@@ -372,3 +372,145 @@ h1 {
 .tunnel-table .tunnel-status-dot {
     margin: 0 auto;
 }
+
+/* Tab Navigation */
+.tab-nav {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #334155;
+}
+
+.tab-btn {
+    padding: 12px 24px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: #e2e8f0;
+}
+
+.tab-btn.active {
+    color: #38bdf8;
+    border-bottom-color: #38bdf8;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Metrics Summary Cards */
+.metrics-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.metric-card {
+    background: #0f172a;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    text-align: center;
+}
+
+.metric-label {
+    color: #94a3b8;
+    font-size: 12px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.metric-value {
+    color: #38bdf8;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+/* Metrics Controls */
+.metrics-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 10px 0;
+    border-bottom: 1px solid #334155;
+}
+
+.metrics-controls label {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.metrics-controls select {
+    padding: 6px 10px;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+/* Charts */
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.chart-container {
+    background: #0f172a;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+}
+
+.chart-container h3 {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+}
+
+.chart-container canvas {
+    max-height: 250px;
+}
+
+/* Slow Requests Table */
+.slow-requests {
+    background: #0f172a;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+}
+
+.slow-requests h3 {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+}
+
+/* Status code colors */
+.status-2xx { color: #22c55e; }
+.status-3xx { color: #38bdf8; }
+.status-4xx { color: #f59e0b; }
+.status-5xx { color: #ef4444; }
+
+/* Response time colors */
+.time-fast { color: #22c55e; }
+.time-medium { color: #f59e0b; }
+.time-slow { color: #ef4444; }
