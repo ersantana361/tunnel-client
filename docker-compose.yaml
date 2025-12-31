@@ -34,13 +34,14 @@ services:
     restart: unless-stopped
     volumes:
       - frpc-config:/etc/frp:ro
-      - ./credentials.json:/etc/frp/credentials.json:ro
+      - ./credentials.json:/app/credentials.json:ro
     environment:
       - TZ=UTC
       - SERVER_URL=http://tunnel.ersantana.com:8000
       - PROXY_PORT=8080
       - METRICS_BUFFER_SIZE=100
       - METRICS_FLUSH_INTERVAL=30
+      - CREDENTIALS_FILE=/app/credentials.json
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
