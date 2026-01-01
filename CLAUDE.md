@@ -179,32 +179,35 @@ The `TUNNEL_TOKEN` env var takes priority over `credentials.json`.
 
 ## Export/Import Tunnels
 
-Export and import tunnel configurations via the UI buttons or API.
+Export and import tunnel configurations via the UI buttons or API. Uses YAML format.
 
-### Export Format
-```json
-{
-  "tunnels": [
-    {
-      "name": "myapp",
-      "type": "http",
-      "local_port": 8080,
-      "local_host": "127.0.0.1",
-      "subdomain": "myapp"
-    }
-  ]
-}
+### Format
+```yaml
+tunnels:
+  - name: myapp
+    type: http
+    local_port: 8080
+    local_host: 127.0.0.1
+    subdomain: myapp
 ```
+
+### Auto-load on Startup
+Place a `tunnels.yaml` file in the working directory. Tunnels will be automatically created on startup if:
+- The file exists
+- You're authenticated (credentials.json exists)
+- The tunnel doesn't already exist on the server
+
+See `tunnels.example.yaml` for a template.
 
 ### CLI Usage
 ```bash
 # Export tunnels to file
-curl -s http://localhost:3002/api/tunnels/export > tunnels.json
+curl -s http://localhost:3002/api/tunnels/export > tunnels.yaml
 
 # Import tunnels from file
 curl -X POST http://localhost:3002/api/tunnels/import \
-  -H 'Content-Type: application/json' \
-  -d @tunnels.json
+  -H 'Content-Type: application/x-yaml' \
+  --data-binary @tunnels.yaml
 ```
 
 ### Import Response
@@ -226,7 +229,8 @@ curl -X POST http://localhost:3002/api/tunnels/import \
 |------|---------|
 | `tunnel_client/` | Main Python package |
 | `credentials.json` | User credentials (runtime, gitignored) |
-| `tunnels.json` | Exported tunnel configs (runtime, gitignored) |
+| `tunnels.yaml` | Tunnel configs, auto-loaded on startup (runtime, gitignored) |
+| `tunnels.example.yaml` | Example tunnel configuration template |
 | `requirements.txt` | Python dependencies |
 | `Dockerfile` | Container build |
 | `docker-compose.yaml` | Docker orchestration |

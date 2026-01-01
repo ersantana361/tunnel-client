@@ -19,8 +19,3 @@ class TunnelCreateRequest(BaseModel):
     local_host: str = "127.0.0.1"
     subdomain: Optional[str] = None
     remote_port: Optional[int] = Field(None, ge=1, le=65535)
-
-
-class TunnelImportRequest(BaseModel):
-    """Import tunnels request model"""
-    tunnels: list[TunnelCreateRequest]

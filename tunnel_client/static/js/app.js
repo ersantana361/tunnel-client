@@ -512,14 +512,14 @@ async function exportTunnels() {
             showAlert(error.detail || 'Failed to export tunnels', 'error');
             return;
         }
-        const data = await res.json();
+        const yamlText = await res.text();
 
-        // Download as JSON file
-        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        // Download as YAML file
+        const blob = new Blob([yamlText], {type: 'application/x-yaml'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'tunnels-export.json';
+        a.download = 'tunnels.yaml';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -540,18 +540,12 @@ async function handleImportFile(event) {
     if (!file) return;
 
     try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-
-        if (!data.tunnels || !Array.isArray(data.tunnels)) {
-            showAlert('Invalid file format: expected {"tunnels": [...]}', 'error');
-            return;
-        }
+        const yamlText = await file.text();
 
         const res = await fetch('/api/tunnels/import', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data)
+            headers: {'Content-Type': 'application/x-yaml'},
+            body: yamlText
         });
 
         if (res.status === 401) {
@@ -573,11 +567,7 @@ async function handleImportFile(event) {
             showAlert('No tunnels to import', 'error');
         }
     } catch (e) {
-        if (e instanceof SyntaxError) {
-            showAlert('Invalid JSON file', 'error');
-        } else {
-            showAlert('Failed to import tunnels', 'error');
-        }
+        showAlert('Failed to import tunnels', 'error');
     }
 
     // Reset file input

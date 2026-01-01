@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from .config import get_logger
 from .routers import auth_router, tunnels_router, service_router, metrics_router
 from .services.frpc import auto_start_frpc
+from .services.api_client import auto_load_tunnels
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Tunnel Client...")
     auto_start_frpc()
+    auto_load_tunnels()
 
     yield
 

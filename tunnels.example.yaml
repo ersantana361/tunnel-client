@@ -1,53 +1,44 @@
-# Tunnel Client Configuration
-# Copy this file to tunnels.yaml and customize for your setup
+# Example tunnel configuration
+# Copy this file to tunnels.yaml and modify as needed
+# Tunnels will be auto-loaded on startup if credentials are configured
 
-# Server connection settings
-server:
-  # Your tunnel server address (cloud VPS or local server)
-  url: "your-server.com:7000"
-  # Authentication token (get this from your server admin)
-  token: "your-token-here"
-
-# Define your tunnels below
 tunnels:
   # HTTP tunnel example - exposes a local web server
-  - name: my-webapp
-    description: "My web application"
+  - name: myapp
     type: http
     local_port: 8080
+    local_host: 127.0.0.1
     subdomain: myapp
-    # Access at: http://myapp.your-server.com
 
-  # Another HTTP example - REST API
-  - name: my-api
-    description: "REST API backend"
-    type: http
-    local_port: 3000
-    subdomain: api
-    # Access at: http://api.your-server.com
+  # HTTPS tunnel example
+  - name: secure-app
+    type: https
+    local_port: 443
+    local_host: 127.0.0.1
+    subdomain: secure
 
-  # TCP tunnel example - exposes a database
-  - name: postgres
-    description: "PostgreSQL database"
-    type: tcp
-    local_port: 5432
-    remote_port: 15432
-    # Access at: your-server.com:15432
-
-  # TCP tunnel example - SSH access
-  - name: ssh
-    description: "SSH server"
+  # TCP tunnel example - exposes a specific port
+  - name: ssh-tunnel
     type: tcp
     local_port: 22
+    local_host: 127.0.0.1
     remote_port: 2222
-    # Access at: your-server.com:2222
+
+  # Tunnel to another Docker container (use container name as local_host)
+  - name: docker-service
+    type: http
+    local_port: 3000
+    local_host: my-container-name
+    subdomain: docker-svc
 
 # Tunnel types:
-#   http/https - Web traffic, uses subdomain routing
-#   tcp/udp    - Raw protocol, uses remote_port mapping
+#   http/https - Web traffic, requires subdomain
+#   tcp        - Raw TCP, requires remote_port
 #
-# For HTTP/HTTPS tunnels:
-#   - subdomain: The subdomain prefix (e.g., "api" -> api.your-server.com)
-#
-# For TCP/UDP tunnels:
-#   - remote_port: The port on the server to expose (e.g., 15432)
+# Fields:
+#   name       - Unique tunnel name (required)
+#   type       - http, https, or tcp (required)
+#   local_port - Port on local machine/container (required)
+#   local_host - Host to forward to (default: 127.0.0.1)
+#   subdomain  - For http/https tunnels
+#   remote_port- For tcp tunnels

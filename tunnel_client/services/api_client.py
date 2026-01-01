@@ -1,9 +1,11 @@
 """Server API client for tunnel management"""
 
+import os
+import yaml
 import requests
 from typing import Optional, Dict, Any, List
 
-from ..config import get_logger
+from ..config import get_logger, TUNNELS_FILE
 from .credentials import get_credentials, get_api_headers, clear_credentials
 
 logger = get_logger(__name__)
@@ -138,3 +140,77 @@ def update_all_tunnels_status(is_active: bool) -> bool:
     for tunnel in tunnels:
         update_tunnel_status(tunnel["id"], is_active)
     return True
+
+
+def auto_load_tunnels() -> Dict[str, Any]:
+    """Auto-load tunnels from TUNNELS_FILE on startup
+
+    Returns:
+        Dict with 'loaded', 'created', 'skipped', and 'failed' counts
+    """
+    results = {"loaded": 0, "created": [], "skipped": [], "failed": []}
+
+    if not os.path.exists(TUNNELS_FILE):
+        logger.info(f"No tunnels file found at {TUNNELS_FILE}, skipping auto-load")
+        return results
+
+    creds = get_credentials()
+    if not creds:
+        logger.info("No credentials found, skipping tunnel auto-load")
+        return results
+
+    try:
+        with open(TUNNELS_FILE, 'r') as f:
+            data = yaml.safe_load(f) or {}
+    except (yaml.YAMLError, IOError) as e:
+        logger.error(f"Failed to read tunnels file: {e}")
+        return results
+
+    tunnels = data.get("tunnels", [])
+    if not tunnels:
+        logger.info("Tunnels file is empty")
+        return results
+
+    results["loaded"] = len(tunnels)
+    logger.info(f"Loading {len(tunnels)} tunnels from {TUNNELS_FILE}")
+
+    # Get existing tunnels to check for duplicates
+    existing = fetch_tunnels() or []
+    existing_names = {t["name"] for t in existing}
+
+    for tunnel in tunnels:
+        name = tunnel.get("name", "unknown")
+
+        # Skip if tunnel already exists
+        if name in existing_names:
+            logger.info(f"Tunnel '{name}' already exists, skipping")
+            results["skipped"].append(name)
+            continue
+
+        # Validate required fields
+        if not all(k in tunnel for k in ("name", "type", "local_port")):
+            results["failed"].append({"name": name, "error": "Missing required fields"})
+            continue
+
+        payload = {
+            "name": tunnel["name"],
+            "type": tunnel["type"],
+            "local_port": tunnel["local_port"],
+            "local_host": tunnel.get("local_host", "127.0.0.1")
+        }
+        if tunnel.get("subdomain"):
+            payload["subdomain"] = tunnel["subdomain"]
+        if tunnel.get("remote_port"):
+            payload["remote_port"] = tunnel["remote_port"]
+
+        result = create_tunnel(payload)
+
+        if result["success"]:
+            logger.info(f"Created tunnel '{name}'")
+            results["created"].append(name)
+        else:
+            logger.warning(f"Failed to create tunnel '{name}': {result.get('error')}")
+            results["failed"].append({"name": name, "error": result.get("error")})
+
+    logger.info(f"Auto-load complete: {len(results['created'])} created, {len(results['skipped'])} skipped, {len(results['failed'])} failed")
+    return results

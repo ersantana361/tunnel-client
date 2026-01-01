@@ -6,6 +6,7 @@ import os
 # File paths
 CREDENTIALS_FILE = os.environ.get("CREDENTIALS_FILE", "credentials.json")
 FRPC_CONFIG = os.environ.get("FRPC_CONFIG", "/etc/frp/frpc.toml")
+TUNNELS_FILE = os.environ.get("TUNNELS_FILE", "tunnels.yaml")
 
 # Server settings
 SERVER_URL = os.environ.get("SERVER_URL", "")  # Pre-configured server URL

@@ -1,9 +1,11 @@
 """Tunnels router"""
 
+import yaml
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
+from fastapi.responses import Response
 
-from ..models.schemas import TunnelCreateRequest, TunnelImportRequest
+from ..models.schemas import TunnelCreateRequest
 from ..services.credentials import get_credentials, get_api_headers, clear_credentials
 from ..services.api_client import create_tunnel, delete_tunnel
 from ..config import get_logger
@@ -132,7 +134,7 @@ async def update_tunnel_endpoint(tunnel_id: int, request: TunnelCreateRequest):
 
 @router.get("/tunnels/export")
 async def export_tunnels():
-    """Export all tunnels as JSON"""
+    """Export all tunnels as YAML"""
     creds = get_credentials()
     if not creds:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -169,54 +171,79 @@ async def export_tunnels():
                 tunnel_export["remote_port"] = t["remote_port"]
             export_data.append(tunnel_export)
 
-        return {"tunnels": export_data}
+        yaml_content = yaml.dump({"tunnels": export_data}, default_flow_style=False, sort_keys=False)
+        return Response(content=yaml_content, media_type="application/x-yaml")
 
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=503, detail=f"Server connection error: {e}")
 
 
 @router.post("/tunnels/import")
-async def import_tunnels(request: TunnelImportRequest):
-    """Import tunnels from JSON"""
+async def import_tunnels(body: str = Body(..., media_type="application/x-yaml")):
+    """Import tunnels from YAML"""
     creds = get_credentials()
     if not creds:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
+    try:
+        data = yaml.safe_load(body) or {}
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
+
+    tunnels = data.get("tunnels", [])
+    if not tunnels:
+        raise HTTPException(status_code=400, detail="No tunnels found in YAML")
+
     results = {"created": [], "failed": []}
 
-    for tunnel in request.tunnels:
-        # Validate type requirements
-        if tunnel.type in ("http", "https") and not tunnel.subdomain:
+    for tunnel in tunnels:
+        name = tunnel.get("name", "unknown")
+        tunnel_type = tunnel.get("type")
+        local_port = tunnel.get("local_port")
+        local_host = tunnel.get("local_host", "127.0.0.1")
+        subdomain = tunnel.get("subdomain")
+        remote_port = tunnel.get("remote_port")
+
+        # Validate required fields
+        if not all([name, tunnel_type, local_port]):
             results["failed"].append({
-                "name": tunnel.name,
+                "name": name,
+                "error": "Missing required fields (name, type, local_port)"
+            })
+            continue
+
+        # Validate type requirements
+        if tunnel_type in ("http", "https") and not subdomain:
+            results["failed"].append({
+                "name": name,
                 "error": "Subdomain is required for HTTP/HTTPS tunnels"
             })
             continue
-        if tunnel.type == "tcp" and not tunnel.remote_port:
+        if tunnel_type == "tcp" and not remote_port:
             results["failed"].append({
-                "name": tunnel.name,
+                "name": name,
                 "error": "Remote port is required for TCP tunnels"
             })
             continue
 
         payload = {
-            "name": tunnel.name,
-            "type": tunnel.type,
-            "local_port": tunnel.local_port,
-            "local_host": tunnel.local_host
+            "name": name,
+            "type": tunnel_type,
+            "local_port": local_port,
+            "local_host": local_host
         }
-        if tunnel.subdomain:
-            payload["subdomain"] = tunnel.subdomain
-        if tunnel.remote_port:
-            payload["remote_port"] = tunnel.remote_port
+        if subdomain:
+            payload["subdomain"] = subdomain
+        if remote_port:
+            payload["remote_port"] = remote_port
 
         result = create_tunnel(payload)
 
         if result["success"]:
-            results["created"].append(tunnel.name)
+            results["created"].append(name)
         else:
             results["failed"].append({
-                "name": tunnel.name,
+                "name": name,
                 "error": result.get("error", "Unknown error")
             })
 
