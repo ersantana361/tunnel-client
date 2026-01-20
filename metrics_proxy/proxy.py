@@ -183,7 +183,11 @@ class MetricsProxy:
                 limit_per_host=20,
                 keepalive_timeout=30
             )
-            self._proxy_session = aiohttp.ClientSession(connector=connector)
+            # Disable auto_decompress to pass through compressed content as-is
+            self._proxy_session = aiohttp.ClientSession(
+                connector=connector,
+                auto_decompress=False
+            )
         return self._proxy_session
 
     async def start_flush_loop(self):
