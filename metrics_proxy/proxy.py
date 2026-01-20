@@ -166,7 +166,7 @@ class TargetsManager:
 
 
 class MetricsProxy:
-    """HTTP reverse proxy with metrics collection"""
+    """HTTP reverse proxy with metrics collection and WebSocket support"""
 
     def __init__(self):
         self.buffer = MetricsBuffer(max_size=BUFFER_SIZE)
@@ -174,6 +174,12 @@ class MetricsProxy:
         self.targets = TargetsManager(TARGETS_FILE)
         self._flush_task: Optional[asyncio.Task] = None
         self._proxy_session: Optional[aiohttp.ClientSession] = None
+
+    def _is_websocket_request(self, request: web.Request) -> bool:
+        """Check if request is a WebSocket upgrade request"""
+        upgrade = request.headers.get("Upgrade", "").lower()
+        connection = request.headers.get("Connection", "").lower()
+        return upgrade == "websocket" and "upgrade" in connection
 
     async def get_proxy_session(self) -> aiohttp.ClientSession:
         if self._proxy_session is None or self._proxy_session.closed:
@@ -189,6 +195,144 @@ class MetricsProxy:
                 auto_decompress=False
             )
         return self._proxy_session
+
+    async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
+        """Handle WebSocket proxy connection"""
+        start_time = time.perf_counter()
+
+        # Get tunnel name from header
+        tunnel_name = request.headers.get("X-Tunnel-Name", "unknown")
+
+        # Get target for this tunnel
+        target = self.targets.get_target(tunnel_name)
+        if not target:
+            logger.warning(f"No target found for WebSocket tunnel: {tunnel_name}")
+            raise web.HTTPBadGateway(text=f"No target configured for tunnel: {tunnel_name}")
+
+        target_host = target.get("host", "127.0.0.1")
+        target_port = target.get("port", 8080)
+
+        # Build WebSocket target URL
+        target_url = f"ws://{target_host}:{target_port}{request.path_qs}"
+
+        logger.info(f"WebSocket connection: {tunnel_name} -> {target_url}")
+
+        # Prepare headers for upstream connection
+        headers = {}
+        skip_headers = {'host', 'x-tunnel-name', 'sec-websocket-key',
+                        'sec-websocket-version', 'sec-websocket-extensions',
+                        'sec-websocket-protocol', 'upgrade', 'connection'}
+        for key, value in request.headers.items():
+            if key.lower() not in skip_headers:
+                headers[key] = value
+
+        # Add forwarding headers
+        client_ip = request.remote or "unknown"
+        headers['X-Forwarded-For'] = client_ip
+        headers['X-Forwarded-Proto'] = request.scheme
+        headers['X-Forwarded-Host'] = request.host
+
+        # Accept the client WebSocket connection
+        ws_client = web.WebSocketResponse()
+        await ws_client.prepare(request)
+
+        bytes_sent = 0
+        bytes_received = 0
+
+        try:
+            # Connect to target WebSocket
+            session = await self.get_proxy_session()
+            async with session.ws_connect(
+                target_url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=None)  # No timeout for WebSocket
+            ) as ws_server:
+
+                async def forward_client_to_server():
+                    """Forward messages from client to server"""
+                    nonlocal bytes_sent
+                    try:
+                        async for msg in ws_client:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                await ws_server.send_str(msg.data)
+                                bytes_sent += len(msg.data.encode())
+                            elif msg.type == aiohttp.WSMsgType.BINARY:
+                                await ws_server.send_bytes(msg.data)
+                                bytes_sent += len(msg.data)
+                            elif msg.type == aiohttp.WSMsgType.PING:
+                                await ws_server.ping(msg.data)
+                            elif msg.type == aiohttp.WSMsgType.PONG:
+                                await ws_server.pong(msg.data)
+                            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
+                                break
+                    except Exception as e:
+                        logger.debug(f"Client->Server forward ended: {e}")
+                    finally:
+                        if not ws_server.closed:
+                            await ws_server.close()
+
+                async def forward_server_to_client():
+                    """Forward messages from server to client"""
+                    nonlocal bytes_received
+                    try:
+                        async for msg in ws_server:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                await ws_client.send_str(msg.data)
+                                bytes_received += len(msg.data.encode())
+                            elif msg.type == aiohttp.WSMsgType.BINARY:
+                                await ws_client.send_bytes(msg.data)
+                                bytes_received += len(msg.data)
+                            elif msg.type == aiohttp.WSMsgType.PING:
+                                await ws_client.ping(msg.data)
+                            elif msg.type == aiohttp.WSMsgType.PONG:
+                                await ws_client.pong(msg.data)
+                            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
+                                break
+                    except Exception as e:
+                        logger.debug(f"Server->Client forward ended: {e}")
+                    finally:
+                        if not ws_client.closed:
+                            await ws_client.close()
+
+                # Run both forwarding tasks concurrently
+                await asyncio.gather(
+                    forward_client_to_server(),
+                    forward_server_to_client(),
+                    return_exceptions=True
+                )
+
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"WebSocket connection failed for {tunnel_name}: {e}")
+            if not ws_client.closed:
+                await ws_client.close(code=1011, message=b"Backend unavailable")
+        except Exception as e:
+            logger.error(f"WebSocket error for {tunnel_name}: {e}")
+            if not ws_client.closed:
+                await ws_client.close(code=1011, message=b"Internal error")
+
+        # Calculate elapsed time
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Record metric for WebSocket connection
+        metric = {
+            "tunnel_name": tunnel_name,
+            "request_path": request.path,
+            "request_method": "WEBSOCKET",
+            "status_code": 101,  # WebSocket upgrade status
+            "response_time_ms": elapsed_ms,
+            "bytes_sent": bytes_sent,
+            "bytes_received": bytes_received,
+            "client_ip": client_ip,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        await self.buffer.add(metric)
+
+        logger.info(
+            f"WebSocket closed: {tunnel_name} "
+            f"(duration={elapsed_ms}ms, sent={bytes_sent}b, recv={bytes_received}b)"
+        )
+
+        return ws_client
 
     async def start_flush_loop(self):
         """Periodically flush metrics to server"""
@@ -209,6 +353,10 @@ class MetricsProxy:
 
     async def handle_request(self, request: web.Request) -> web.Response:
         """Handle incoming request, proxy it, and record metrics"""
+        # Check for WebSocket upgrade request
+        if self._is_websocket_request(request):
+            return await self.handle_websocket(request)
+
         start_time = time.perf_counter()
 
         # Get tunnel name from header
