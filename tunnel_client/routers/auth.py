@@ -125,7 +125,7 @@ async def logout():
 
 @router.get("/auth/status")
 async def auth_status():
-    """Get authentication status"""
+    """Get authentication status, validating token with remote server"""
     creds = get_credentials()
     if not creds:
         return {
@@ -133,6 +133,27 @@ async def auth_status():
             "email": None,
             "server_url": None
         }
+
+    # Validate token with remote server
+    try:
+        response = requests.get(
+            f"{creds['server_url']}/api/tunnels",
+            headers={"Authorization": f"Bearer {creds['access_token']}"},
+            timeout=5
+        )
+        if response.status_code == 401:
+            # Token expired, clear credentials
+            logger.info("Access token expired, clearing credentials")
+            clear_credentials()
+            return {
+                "authenticated": False,
+                "email": None,
+                "server_url": None
+            }
+    except requests.exceptions.RequestException as e:
+        # Server unreachable - still show as authenticated so user can see UI
+        # They'll get a proper error when they try to load tunnels
+        logger.warning(f"Could not validate token with server: {e}")
 
     return {
         "authenticated": True,
