@@ -14,8 +14,9 @@ class LoginRequest(BaseModel):
 class TunnelCreateRequest(BaseModel):
     """Create tunnel request model"""
     name: str = Field(..., min_length=1, max_length=50)
-    type: Literal["http", "https", "tcp"]
+    type: Literal["http", "https", "tcp", "ssh"]
     local_port: int = Field(..., ge=1, le=65535)
     local_host: str = "127.0.0.1"
     subdomain: Optional[str] = None
     remote_port: Optional[int] = Field(None, ge=1, le=65535)
+    ssh_user: Optional[str] = None

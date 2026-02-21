@@ -234,10 +234,20 @@ function renderTableView(container, tunnels) {
 
         let remoteText = '';
         const publicUrl = getPublicUrl(t);
-        if (publicUrl) {
+        if (t.type === 'ssh' && t.ssh_connection_string) {
+            remoteText = `<span class="ssh-connection" onclick="copyToClipboard('${t.ssh_connection_string}')" title="Click to copy">${t.ssh_connection_string}</span>`;
+        } else if (publicUrl) {
             remoteText = `<a href="${publicUrl}" target="_blank">${publicUrl}</a>`;
         } else if (t.remote_port) {
             remoteText = '[server]:' + t.remote_port;
+        }
+
+        let actionsHtml = `
+            <button class="btn btn-secondary btn-sm" onclick='editTunnel(${JSON.stringify(t)})'>Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTunnel(${t.id})">Delete</button>
+        `;
+        if (t.type === 'ssh') {
+            actionsHtml = `<button class="btn btn-sm" style="background:#a78bfa;color:white" onclick="testSSH(${t.id})">Test</button> ` + actionsHtml;
         }
 
         html += `
@@ -247,10 +257,7 @@ function renderTableView(container, tunnels) {
                 <td><span class="tunnel-type">${t.type}</span></td>
                 <td>${t.local_host}:${t.local_port}</td>
                 <td class="tunnel-remote">${remoteText}</td>
-                <td class="actions">
-                    <button class="btn btn-secondary btn-sm" onclick='editTunnel(${JSON.stringify(t)})'>Edit</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteTunnel(${t.id})">Delete</button>
-                </td>
+                <td class="actions">${actionsHtml}</td>
             </tr>
         `;
     });
@@ -272,11 +279,15 @@ function renderCardView(container, tunnels) {
         let detailText = t.local_host + ':' + t.local_port;
         let urlHtml = '';
 
-        const publicUrl = getPublicUrl(t);
-        if (publicUrl) {
-            urlHtml = `<div class="tunnel-url"><a href="${publicUrl}" target="_blank">${publicUrl}</a></div>`;
-        } else if (t.remote_port) {
-            detailText += ' → [server]:' + t.remote_port;
+        if (t.type === 'ssh' && t.ssh_connection_string) {
+            urlHtml = `<div class="tunnel-url"><span class="ssh-connection" onclick="copyToClipboard('${t.ssh_connection_string}')" title="Click to copy">${t.ssh_connection_string}</span></div>`;
+        } else {
+            const publicUrl = getPublicUrl(t);
+            if (publicUrl) {
+                urlHtml = `<div class="tunnel-url"><a href="${publicUrl}" target="_blank">${publicUrl}</a></div>`;
+            } else if (t.remote_port) {
+                detailText += ' → [server]:' + t.remote_port;
+            }
         }
 
         let lastConnected = '';
@@ -336,6 +347,8 @@ function toggleCreateForm() {
         document.getElementById('tunnelLocalHost').value = '127.0.0.1';
         document.getElementById('tunnelSubdomain').value = '';
         document.getElementById('tunnelRemotePort').value = '';
+        document.getElementById('tunnelSSHUser').value = '';
+        document.getElementById('sshUserRow').style.display = 'none';
     }
 }
 
@@ -349,6 +362,7 @@ function editTunnel(tunnel) {
     document.getElementById('tunnelLocalHost').value = tunnel.local_host || '127.0.0.1';
     document.getElementById('tunnelSubdomain').value = tunnel.subdomain || '';
     document.getElementById('tunnelRemotePort').value = tunnel.remote_port || '';
+    document.getElementById('tunnelSSHUser').value = tunnel.ssh_user || '';
     updateFormFields();
     document.getElementById('createForm').classList.add('show');
 }
@@ -357,13 +371,29 @@ function updateFormFields() {
     const type = document.getElementById('tunnelType').value;
     const subdomainGroup = document.getElementById('subdomainGroup');
     const remotePortGroup = document.getElementById('remotePortGroup');
+    const sshUserRow = document.getElementById('sshUserRow');
 
     if (type === 'tcp') {
         subdomainGroup.style.display = 'none';
         remotePortGroup.style.display = 'block';
+        sshUserRow.style.display = 'none';
+    } else if (type === 'ssh') {
+        subdomainGroup.style.display = 'none';
+        remotePortGroup.style.display = 'block';
+        sshUserRow.style.display = 'grid';
+        // Set SSH defaults if creating new
+        if (!editingTunnelId) {
+            if (!document.getElementById('tunnelLocalPort').value) {
+                document.getElementById('tunnelLocalPort').value = '22';
+            }
+            if (document.getElementById('tunnelLocalHost').value === '127.0.0.1') {
+                document.getElementById('tunnelLocalHost').value = 'host.docker.internal';
+            }
+        }
     } else {
         subdomainGroup.style.display = 'block';
         remotePortGroup.style.display = 'none';
+        sshUserRow.style.display = 'none';
     }
 }
 
@@ -380,8 +410,21 @@ async function createTunnel() {
         return;
     }
 
+    const sshUser = document.getElementById('tunnelSSHUser').value.trim();
+
     const payload = {name, type, local_port: localPort, local_host: localHost};
-    if (type === 'tcp') {
+    if (type === 'ssh') {
+        if (!remotePort) {
+            showAlert('Remote port is required for SSH tunnels', 'error');
+            return;
+        }
+        if (!sshUser) {
+            showAlert('SSH user is required for SSH tunnels', 'error');
+            return;
+        }
+        payload.remote_port = remotePort;
+        payload.ssh_user = sshUser;
+    } else if (type === 'tcp') {
         if (!remotePort) {
             showAlert('Remote port is required for TCP tunnels', 'error');
             return;
@@ -500,6 +543,178 @@ function showAlert(message, type) {
     setTimeout(() => alertContainer.innerHTML = '', 3000);
 }
 
+// ==================== SSH FUNCTIONS ====================
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showAlert('Copied to clipboard', 'success');
+    }).catch(() => {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showAlert('Copied to clipboard', 'success');
+    });
+}
+
+async function testSSH(tunnelId) {
+    showAlert('Testing SSH connection...', 'success');
+    try {
+        const res = await fetch(`/api/tunnels/${tunnelId}/test-ssh`);
+        if (!res.ok) {
+            const error = await res.json();
+            showAlert(error.detail || 'Test failed', 'error');
+            return;
+        }
+        const data = await res.json();
+        if (data.is_ssh) {
+            showAlert(`SSH is reachable! Banner: ${data.ssh_banner}`, 'success');
+        } else if (data.reachable) {
+            showAlert('Port is reachable but no SSH banner detected', 'error');
+        } else {
+            showAlert('SSH is not reachable - check that sshd is running and the tunnel is active', 'error');
+        }
+    } catch (e) {
+        showAlert('Failed to test SSH connection', 'error');
+    }
+}
+
+async function loadSSHKeys() {
+    try {
+        const res = await fetch('/api/ssh-keys');
+        if (res.status === 401) {
+            showLogin();
+            return;
+        }
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const keys = data.keys || [];
+        const container = document.getElementById('sshKeyList');
+        const countEl = document.getElementById('sshKeyCount');
+
+        countEl.textContent = '(' + keys.length + ')';
+
+        if (keys.length === 0) {
+            container.innerHTML = '<div class="empty-state">No SSH keys yet. Click "+ Add Key" to add one.</div>';
+            return;
+        }
+
+        container.innerHTML = keys.map(k => `
+            <div class="ssh-key-item">
+                <div class="ssh-key-header">
+                    <div>
+                        <span class="ssh-key-name">${k.name}</span>
+                        <span class="ssh-key-fingerprint">${k.fingerprint}</span>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="deleteSSHKey(${k.id}, '${k.name}')">Delete</button>
+                </div>
+                <div class="ssh-key-value">${k.public_key.substring(0, 80)}...</div>
+                <div class="ssh-key-meta">Added ${new Date(k.created_at).toLocaleString()}</div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Failed to load SSH keys:', e);
+    }
+}
+
+function toggleAddKeyForm() {
+    const form = document.getElementById('addKeyForm');
+    form.classList.toggle('show');
+    if (!form.classList.contains('show')) {
+        document.getElementById('sshKeyName').value = '';
+        document.getElementById('sshKeyPublicKey').value = '';
+    }
+}
+
+async function addSSHKey() {
+    const name = document.getElementById('sshKeyName').value.trim();
+    const publicKey = document.getElementById('sshKeyPublicKey').value.trim();
+
+    if (!name || !publicKey) {
+        showAlert('Name and public key are required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/ssh-keys', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, public_key: publicKey})
+        });
+
+        if (res.ok) {
+            showAlert('SSH key added successfully', 'success');
+            toggleAddKeyForm();
+            loadSSHKeys();
+        } else {
+            const error = await res.json();
+            showAlert(error.detail || 'Failed to add SSH key', 'error');
+        }
+    } catch (e) {
+        showAlert('Network error', 'error');
+    }
+}
+
+async function deleteSSHKey(keyId, keyName) {
+    if (!confirm(`Delete SSH key "${keyName}"?`)) return;
+
+    try {
+        const res = await fetch(`/api/ssh-keys/${keyId}`, {method: 'DELETE'});
+        if (res.ok) {
+            showAlert('SSH key deleted', 'success');
+            loadSSHKeys();
+        } else {
+            const error = await res.json();
+            showAlert(error.detail || 'Failed to delete SSH key', 'error');
+        }
+    } catch (e) {
+        showAlert('Network error', 'error');
+    }
+}
+
+function renderSSHDInstructions() {
+    const container = document.getElementById('sshdInstructions');
+    container.innerHTML = `
+        <p style="color:#94a3b8;margin-bottom:15px">Follow these steps to set up an SSH server in WSL2 so you can connect through the tunnel.</p>
+
+        <h3 style="color:#38bdf8;font-size:14px;margin:15px 0 8px">1. Install OpenSSH Server</h3>
+        <div class="code-block">sudo apt update && sudo apt install openssh-server</div>
+
+        <h3 style="color:#38bdf8;font-size:14px;margin:15px 0 8px">2. Configure sshd</h3>
+        <div class="code-block">sudo sed -i 's/#Port 22/Port 22/' /etc/ssh/sshd_config
+sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config</div>
+
+        <h3 style="color:#38bdf8;font-size:14px;margin:15px 0 8px">3. Set Up authorized_keys</h3>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:8px">Add your public keys (from the SSH Keys tab above) to the authorized_keys file:</p>
+        <div class="code-block">mkdir -p ~/.ssh && chmod 700 ~/.ssh
+# Paste your public key(s) into this file:
+nano ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys</div>
+
+        <h3 style="color:#38bdf8;font-size:14px;margin:15px 0 8px">4. Start sshd</h3>
+        <div class="code-block">sudo service ssh start</div>
+
+        <h3 style="color:#38bdf8;font-size:14px;margin:15px 0 8px">5. WSL2 Notes</h3>
+        <ul style="color:#94a3b8;font-size:13px;padding-left:20px;line-height:1.8">
+            <li>WSL2 does not start sshd automatically. Run <code style="color:#a78bfa">sudo service ssh start</code> after each reboot.</li>
+            <li>To auto-start sshd, add the command to your <code style="color:#a78bfa">~/.bashrc</code> or use a Windows Task Scheduler task.</li>
+            <li>The tunnel uses <code style="color:#a78bfa">host.docker.internal</code> as local_host to reach WSL2 from the Docker container.</li>
+            <li>Make sure port 22 is not blocked by Windows Firewall.</li>
+        </ul>
+
+        <h3 style="color:#38bdf8;font-size:14px;margin:15px 0 8px">6. Test Locally</h3>
+        <div class="code-block"># From WSL2 itself:
+ssh localhost
+# From Windows (PowerShell):
+ssh username@localhost</div>
+    `;
+}
+
 async function exportTunnels() {
     try {
         const res = await fetch('/api/tunnels/export');
@@ -586,20 +801,30 @@ function showTab(tab) {
 
     // Update tab buttons
     document.getElementById('tabTunnels').classList.toggle('active', tab === 'tunnels');
+    document.getElementById('tabSshkeys').classList.toggle('active', tab === 'sshkeys');
     document.getElementById('tabMetrics').classList.toggle('active', tab === 'metrics');
 
     // Update tab content
     const tunnelsTab = document.getElementById('tunnelsTab');
+    const sshkeysTab = document.getElementById('sshkeysTab');
     const metricsTab = document.getElementById('metricsTab');
+
+    tunnelsTab.style.display = 'none';
+    tunnelsTab.classList.remove('active');
+    sshkeysTab.style.display = 'none';
+    sshkeysTab.classList.remove('active');
+    metricsTab.style.display = 'none';
+    metricsTab.classList.remove('active');
 
     if (tab === 'tunnels') {
         tunnelsTab.style.display = 'block';
         tunnelsTab.classList.add('active');
-        metricsTab.style.display = 'none';
-        metricsTab.classList.remove('active');
-    } else {
-        tunnelsTab.style.display = 'none';
-        tunnelsTab.classList.remove('active');
+    } else if (tab === 'sshkeys') {
+        sshkeysTab.style.display = 'block';
+        sshkeysTab.classList.add('active');
+        loadSSHKeys();
+        renderSSHDInstructions();
+    } else if (tab === 'metrics') {
         metricsTab.style.display = 'block';
         metricsTab.classList.add('active');
         initMetrics();

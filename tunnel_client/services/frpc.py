@@ -118,9 +118,12 @@ webServer.port = 7400
         subdomain = tunnel.get('subdomain')
         remote_port = tunnel.get('remote_port')
 
+        # SSH tunnels map to TCP in frpc (frp has no native SSH type)
+        frpc_type = 'tcp' if tunnel_type == 'ssh' else tunnel_type
+
         config_content += f'[[proxies]]\n'
         config_content += f'name = "{name}"\n'
-        config_content += f'type = "{tunnel_type}"\n'
+        config_content += f'type = "{frpc_type}"\n'
 
         # Route HTTP/HTTPS through metrics-proxy for request timing
         if tunnel_type in ('http', 'https'):
@@ -129,7 +132,7 @@ webServer.port = 7400
             # Add header to identify tunnel in metrics-proxy
             config_content += f'requestHeaders.set.x-tunnel-name = "{name}"\n'
         else:
-            # TCP tunnels go direct (no HTTP headers available)
+            # TCP and SSH tunnels go direct (no HTTP headers available)
             config_content += f'localIP = "{local_host}"\n'
             config_content += f'localPort = {local_port}\n'
 

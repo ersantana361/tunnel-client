@@ -142,6 +142,128 @@ def update_all_tunnels_status(is_active: bool) -> bool:
     return True
 
 
+def fetch_ssh_keys() -> Optional[List[Dict[str, Any]]]:
+    """Fetch SSH keys from server"""
+    creds = get_credentials()
+    if not creds:
+        return None
+
+    try:
+        response = requests.get(
+            f"{creds['server_url']}/api/ssh-keys",
+            headers=get_api_headers(),
+            timeout=10
+        )
+
+        if response.status_code == 401:
+            clear_credentials()
+            return None
+
+        if response.status_code != 200:
+            logger.error(f"Failed to fetch SSH keys: {response.status_code}")
+            return None
+
+        return response.json().get("keys", [])
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to fetch SSH keys: {e}")
+        return None
+
+
+def add_ssh_key(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Add an SSH key on server"""
+    creds = get_credentials()
+    if not creds:
+        return {"success": False, "error": "Not authenticated", "status_code": 401}
+
+    try:
+        response = requests.post(
+            f"{creds['server_url']}/api/ssh-keys",
+            headers=get_api_headers(),
+            json=payload,
+            timeout=10
+        )
+
+        if response.status_code == 401:
+            clear_credentials()
+            return {"success": False, "error": "Session expired", "status_code": 401}
+
+        if response.status_code == 400:
+            error = response.json().get("detail", "Invalid SSH key")
+            return {"success": False, "error": error, "status_code": 400}
+
+        if response.status_code not in (200, 201):
+            try:
+                detail = response.json().get("detail", f"Server returned {response.status_code}")
+            except:
+                detail = f"Server returned {response.status_code}"
+            return {"success": False, "error": detail, "status_code": response.status_code}
+
+        return {"success": True, "data": response.json()}
+
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Server connection error: {e}", "status_code": 503}
+
+
+def delete_ssh_key(key_id: int) -> Dict[str, Any]:
+    """Delete an SSH key from server"""
+    creds = get_credentials()
+    if not creds:
+        return {"success": False, "error": "Not authenticated", "status_code": 401}
+
+    try:
+        response = requests.delete(
+            f"{creds['server_url']}/api/ssh-keys/{key_id}",
+            headers=get_api_headers(),
+            timeout=10
+        )
+
+        if response.status_code == 401:
+            clear_credentials()
+            return {"success": False, "error": "Session expired", "status_code": 401}
+
+        if response.status_code == 404:
+            return {"success": False, "error": "SSH key not found", "status_code": 404}
+
+        if response.status_code != 200:
+            return {"success": False, "error": "Failed to delete SSH key", "status_code": response.status_code}
+
+        return {"success": True}
+
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Server connection error: {e}", "status_code": 503}
+
+
+def test_ssh_connection(tunnel_id: int) -> Dict[str, Any]:
+    """Test SSH connection for a tunnel"""
+    creds = get_credentials()
+    if not creds:
+        return {"success": False, "error": "Not authenticated", "status_code": 401}
+
+    try:
+        response = requests.get(
+            f"{creds['server_url']}/api/tunnels/{tunnel_id}/test-ssh",
+            headers=get_api_headers(),
+            timeout=15
+        )
+
+        if response.status_code == 401:
+            clear_credentials()
+            return {"success": False, "error": "Session expired", "status_code": 401}
+
+        if response.status_code != 200:
+            try:
+                detail = response.json().get("detail", f"Server returned {response.status_code}")
+            except:
+                detail = f"Server returned {response.status_code}"
+            return {"success": False, "error": detail, "status_code": response.status_code}
+
+        return {"success": True, "data": response.json()}
+
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "error": f"Server connection error: {e}", "status_code": 503}
+
+
 def auto_load_tunnels() -> Dict[str, Any]:
     """Auto-load tunnels from TUNNELS_FILE on startup
 
@@ -202,6 +324,8 @@ def auto_load_tunnels() -> Dict[str, Any]:
             payload["subdomain"] = tunnel["subdomain"]
         if tunnel.get("remote_port"):
             payload["remote_port"] = tunnel["remote_port"]
+        if tunnel.get("ssh_user"):
+            payload["ssh_user"] = tunnel["ssh_user"]
 
         result = create_tunnel(payload)
 

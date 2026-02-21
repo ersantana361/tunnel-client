@@ -7,7 +7,10 @@ from fastapi.responses import Response
 
 from ..models.schemas import TunnelCreateRequest
 from ..services.credentials import get_credentials, get_api_headers, clear_credentials
-from ..services.api_client import create_tunnel, delete_tunnel
+from ..services.api_client import (
+    create_tunnel, delete_tunnel,
+    fetch_ssh_keys, add_ssh_key, delete_ssh_key, test_ssh_connection,
+)
 from ..config import get_logger
 
 logger = get_logger(__name__)
@@ -54,6 +57,11 @@ async def create_tunnel_endpoint(request: TunnelCreateRequest):
         raise HTTPException(status_code=400, detail="Subdomain is required for HTTP/HTTPS tunnels")
     if request.type == "tcp" and not request.remote_port:
         raise HTTPException(status_code=400, detail="Remote port is required for TCP tunnels")
+    if request.type == "ssh":
+        if not request.remote_port:
+            raise HTTPException(status_code=400, detail="Remote port is required for SSH tunnels")
+        if not request.ssh_user:
+            raise HTTPException(status_code=400, detail="SSH user is required for SSH tunnels")
 
     payload = {
         "name": request.name,
@@ -65,6 +73,8 @@ async def create_tunnel_endpoint(request: TunnelCreateRequest):
         payload["subdomain"] = request.subdomain
     if request.remote_port:
         payload["remote_port"] = request.remote_port
+    if request.ssh_user:
+        payload["ssh_user"] = request.ssh_user
 
     result = create_tunnel(payload)
 
@@ -106,6 +116,8 @@ async def update_tunnel_endpoint(tunnel_id: int, request: TunnelCreateRequest):
         payload["subdomain"] = request.subdomain
     if request.remote_port:
         payload["remote_port"] = request.remote_port
+    if request.ssh_user:
+        payload["ssh_user"] = request.ssh_user
 
     try:
         response = requests.put(
@@ -169,6 +181,8 @@ async def export_tunnels():
                 tunnel_export["subdomain"] = t["subdomain"]
             if t.get("remote_port"):
                 tunnel_export["remote_port"] = t["remote_port"]
+            if t.get("ssh_user"):
+                tunnel_export["ssh_user"] = t["ssh_user"]
             export_data.append(tunnel_export)
 
         yaml_content = yaml.dump({"tunnels": export_data}, default_flow_style=False, sort_keys=False)
@@ -203,6 +217,7 @@ async def import_tunnels(body: str = Body(..., media_type="application/x-yaml"))
         local_host = tunnel.get("local_host", "127.0.0.1")
         subdomain = tunnel.get("subdomain")
         remote_port = tunnel.get("remote_port")
+        ssh_user = tunnel.get("ssh_user")
 
         # Validate required fields
         if not all([name, tunnel_type, local_port]):
@@ -225,6 +240,12 @@ async def import_tunnels(body: str = Body(..., media_type="application/x-yaml"))
                 "error": "Remote port is required for TCP tunnels"
             })
             continue
+        if tunnel_type == "ssh" and (not remote_port or not ssh_user):
+            results["failed"].append({
+                "name": name,
+                "error": "Remote port and SSH user are required for SSH tunnels"
+            })
+            continue
 
         payload = {
             "name": name,
@@ -236,6 +257,8 @@ async def import_tunnels(body: str = Body(..., media_type="application/x-yaml"))
             payload["subdomain"] = subdomain
         if remote_port:
             payload["remote_port"] = remote_port
+        if ssh_user:
+            payload["ssh_user"] = ssh_user
 
         result = create_tunnel(payload)
 
@@ -248,3 +271,64 @@ async def import_tunnels(body: str = Body(..., media_type="application/x-yaml"))
             })
 
     return results
+
+
+# ==================== SSH Keys Proxy ====================
+
+@router.get("/ssh-keys")
+async def list_ssh_keys():
+    """Get SSH keys from server"""
+    creds = get_credentials()
+    if not creds:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    keys = fetch_ssh_keys()
+    if keys is None:
+        raise HTTPException(status_code=503, detail="Failed to fetch SSH keys")
+
+    return {"keys": keys}
+
+
+@router.post("/ssh-keys")
+async def add_ssh_key_endpoint(body: dict = Body(...)):
+    """Add an SSH key on server"""
+    creds = get_credentials()
+    if not creds:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    result = add_ssh_key(body)
+
+    if not result["success"]:
+        raise HTTPException(status_code=result["status_code"], detail=result["error"])
+
+    return result["data"]
+
+
+@router.delete("/ssh-keys/{key_id}")
+async def delete_ssh_key_endpoint(key_id: int):
+    """Delete an SSH key from server"""
+    creds = get_credentials()
+    if not creds:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    result = delete_ssh_key(key_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=result["status_code"], detail=result["error"])
+
+    return {"message": "SSH key deleted successfully"}
+
+
+@router.get("/tunnels/{tunnel_id}/test-ssh")
+async def test_ssh_endpoint(tunnel_id: int):
+    """Test SSH connection for a tunnel"""
+    creds = get_credentials()
+    if not creds:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    result = test_ssh_connection(tunnel_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=result.get("status_code", 500), detail=result["error"])
+
+    return result["data"]

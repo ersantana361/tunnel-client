@@ -18,11 +18,19 @@ tunnels:
     subdomain: secure
 
   # TCP tunnel example - exposes a specific port
-  - name: ssh-tunnel
+  - name: db-tunnel
     type: tcp
-    local_port: 22
+    local_port: 5432
     local_host: 127.0.0.1
+    remote_port: 5432
+
+  # SSH tunnel example - first-class SSH with connection string display
+  - name: wsl-ssh
+    type: ssh
+    local_port: 22
+    local_host: host.docker.internal
     remote_port: 2222
+    ssh_user: ersantana
 
   # Tunnel to another Docker container (use container name as local_host)
   - name: docker-service
@@ -34,11 +42,13 @@ tunnels:
 # Tunnel types:
 #   http/https - Web traffic, requires subdomain
 #   tcp        - Raw TCP, requires remote_port
+#   ssh        - SSH tunnel (maps to TCP), requires remote_port and ssh_user
 #
 # Fields:
 #   name       - Unique tunnel name (required)
-#   type       - http, https, or tcp (required)
+#   type       - http, https, tcp, or ssh (required)
 #   local_port - Port on local machine/container (required)
 #   local_host - Host to forward to (default: 127.0.0.1)
 #   subdomain  - For http/https tunnels
-#   remote_port- For tcp tunnels
+#   remote_port- For tcp/ssh tunnels
+#   ssh_user   - For ssh tunnels (displayed in connection string)
