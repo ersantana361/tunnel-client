@@ -1,3 +1,5 @@
+name: tunnel-client
+
 services:
   tunnel-client:
     build: .
@@ -11,7 +13,7 @@ services:
       - frpc-config:/etc/frp
     environment:
       - TZ=UTC
-      - SERVER_URL=http://tunnel.ersantana.com:8000
+      - SERVER_URL=https://tunnel.ersantana.com
       - TUNNEL_TOKEN
       - FRPC_ADMIN_URL=http://frpc:7400
     extra_hosts:
@@ -38,7 +40,7 @@ services:
       - ./credentials.json:/app/credentials.json:ro
     environment:
       - TZ=UTC
-      - SERVER_URL=http://tunnel.ersantana.com:8000
+      - SERVER_URL=https://tunnel.ersantana.com
       - PROXY_PORT=8080
       - METRICS_BUFFER_SIZE=100
       - METRICS_FLUSH_INTERVAL=30
